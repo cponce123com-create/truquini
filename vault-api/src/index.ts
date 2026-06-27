@@ -8,11 +8,11 @@ import vaultRoutes from "./routes/vault.js";
 
 // Validate required environment variables early
 const DB_TYPE = process.env.DB_TYPE || "neon";
-const requiredEnvVars = ["JWT_SECRET", "FRONTEND_ORIGIN", "PORT"] as const;
+const requiredEnvVars: string[] = ["JWT_SECRET", "FRONTEND_ORIGIN", "PORT"];
 
 // DATABASE_URL is only required for Neon mode
 if (DB_TYPE !== "sqlite") {
-  requiredEnvVars.push("DATABASE_URL" as never);
+  requiredEnvVars.push("DATABASE_URL");
 }
 
 for (const varName of requiredEnvVars) {

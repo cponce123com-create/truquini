@@ -7,7 +7,7 @@ import * as pgSchema from "./schema-pg.js";
 
 const DB_TYPE = process.env.DB_TYPE || "neon";
 
-let db: ReturnType<typeof drizzle> | ReturnType<typeof drizzleSqlite>;
+let db: any;
 
 if (DB_TYPE === "sqlite") {
   const sqlite = new Database("vault.db");

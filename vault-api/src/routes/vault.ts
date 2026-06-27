@@ -112,7 +112,11 @@ router.put("/", async (req: Request, res: Response): Promise<void> => {
 
     res.json({ updatedAt: now });
   } catch (err) {
-    console.error("Vault PUT error:", err instanceof Error ? err.message : err);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("Vault PUT error:", msg);
+    if (err instanceof Error && err.stack) {
+      console.error("Vault PUT stack:", err.stack);
+    }
     res.status(500).json({ error: "Error interno del servidor" });
   }
 });

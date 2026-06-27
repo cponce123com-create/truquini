@@ -63,6 +63,20 @@ router.put("/", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // Max lengths to prevent DB abuse
+    if (salt.length > 256) {
+      res.status(400).json({ error: "salt excede el tamaño máximo (256 caracteres)" });
+      return;
+    }
+    if (iv.length > 256) {
+      res.status(400).json({ error: "iv excede el tamaño máximo (256 caracteres)" });
+      return;
+    }
+    if (data.length > 5 * 1024 * 1024) {
+      res.status(400).json({ error: "data excede el tamaño máximo (5MB)" });
+      return;
+    }
+
     // Upsert: check if a blob already exists for this user
     const existing = await db
       .select({ id: vaultBlobs.id, version: vaultBlobs.version })

@@ -3,7 +3,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { eq } from "drizzle-orm";
 import { db, users } from "../db/index.js";
-import { loginRateLimiter } from "../middleware/rateLimit.js";
+import { loginRateLimiter, registerLimiter } from "../middleware/rateLimit.js";
 import { authMiddleware, type AuthPayload } from "../middleware/auth.js";
 
 const router = Router();
@@ -15,6 +15,7 @@ const JWT_EXPIRY = "30d";
 // POST /api/auth/register
 router.post(
   "/register",
+  registerLimiter,
   async (req: Request, res: Response): Promise<void> => {
     try {
       // Check if registration is allowed
@@ -27,17 +28,27 @@ router.post(
 
       // Validate input
       if (
-        !username ||
-        !password ||
-        typeof username !== "string" ||
-        typeof password !== "string"
+        !username || !password ||
+        typeof username !== "string" || typeof password !== "string"
       ) {
         res.status(400).json({ error: "Username y password son requeridos" });
         return;
       }
 
-      if (username.trim().length < 1 || password.length < 1) {
-        res.status(400).json({ error: "Username y password no pueden estar vacíos" });
+      const trimmedUser = username.trim();
+
+      if (trimmedUser.length < 3 || trimmedUser.length > 50) {
+        res.status(400).json({ error: "El username debe tener entre 3 y 50 caracteres" });
+        return;
+      }
+
+      if (/[\x00-\x1F\x7F]/.test(trimmedUser)) {
+        res.status(400).json({ error: "El username contiene caracteres no permitidos" });
+        return;
+      }
+
+      if (password.length < 8) {
+        res.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres" });
         return;
       }
 
@@ -45,7 +56,7 @@ router.post(
       const existing = await db
         .select({ id: users.id })
         .from(users)
-        .where(eq(users.username, username.trim()))
+        .where(eq(users.username, trimmedUser))
         .limit(1);
 
       if (existing.length > 0) {
@@ -57,7 +68,7 @@ router.post(
       const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
       await db.insert(users).values({
-        username: username.trim(),
+        username: trimmedUser,
         passwordHash,
       });
 
@@ -87,11 +98,28 @@ router.post(
         return;
       }
 
+      const trimmedUser = username.trim();
+
+      if (trimmedUser.length < 3 || trimmedUser.length > 50) {
+        res.status(400).json({ error: "Usuario o contraseña incorrectos" });
+        return;
+      }
+
+      if (/[\x00-\x1F\x7F]/.test(trimmedUser)) {
+        res.status(400).json({ error: "Usuario o contraseña incorrectos" });
+        return;
+      }
+
+      if (password.length < 8) {
+        res.status(400).json({ error: "Usuario o contraseña incorrectos" });
+        return;
+      }
+
       // Find user
       const result = await db
         .select()
         .from(users)
-        .where(eq(users.username, username.trim()))
+        .where(eq(users.username, trimmedUser))
         .limit(1);
 
       const user = result[0];
@@ -119,7 +147,7 @@ router.post(
       // Set cookie
       res.cookie("token", token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: process.env.NODE_ENV !== "development",
         sameSite: "strict",
         maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days in ms
         path: "/",
@@ -137,7 +165,7 @@ router.post(
 router.post("/logout", (_req: Request, res: Response): void => {
   res.clearCookie("token", {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: process.env.NODE_ENV !== "development",
     sameSite: "strict",
     path: "/",
   });

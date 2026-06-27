@@ -30,7 +30,7 @@ app.use(
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:"],
         connectSrc: ["'self'"],
@@ -51,7 +51,7 @@ app.use(
 app.use(cookieParser());
 
 // Parse JSON bodies — NEVER log vault request bodies
-app.use(express.json());
+app.use(express.json({ limit: "6mb" }));
 
 // Serve static frontend (single index.html at /)
 app.use(express.static("public"));
@@ -65,11 +65,13 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-// Start server only if not in a serverless environment (e.g., Render runs it directly)
-const PORT = parseInt(process.env.PORT!, 10);
-app.listen(PORT, () => {
-  console.log(`vault-api corriendo en puerto ${PORT}`);
-  console.log(`  DB_TYPE: ${DB_TYPE}`);
-});
+// Start server only if not in test or serverless environment
+if (!process.env.VITEST) {
+  const PORT = parseInt(process.env.PORT!, 10);
+  app.listen(PORT, () => {
+    console.log(`vault-api corriendo en puerto ${PORT}`);
+    console.log(`  DB_TYPE: ${DB_TYPE}`);
+  });
+}
 
 export default app;

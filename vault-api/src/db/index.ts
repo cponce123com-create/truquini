@@ -5,9 +5,21 @@ import { drizzle as drizzleSqlite } from "drizzle-orm/better-sqlite3";
 import * as sqliteSchema from "./schema.js";
 import * as pgSchema from "./schema-pg.js";
 
+/**
+ * Simplified DB client interface covering only the methods we use.
+ * SQLite and Neon/Postgres Drizzle instances have incompatible type signatures,
+ * so this provides documented type safety while allowing union assignment.
+ */
+interface DbClient {
+  select: (...args: any[]) => any;
+  insert: (...args: any[]) => any;
+  update: (...args: any[]) => any;
+  delete: (...args: any[]) => any;
+}
+
 const DB_TYPE = process.env.DB_TYPE || "neon";
 
-let db: any;
+let db: DbClient;
 
 if (DB_TYPE === "sqlite") {
   const sqlite = new Database("vault.db");

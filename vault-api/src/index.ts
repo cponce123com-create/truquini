@@ -23,8 +23,19 @@ for (const varName of requiredEnvVars) {
 
 const app = express();
 
-// Security headers
-app.use(helmet());
+// Security headers — allow inline scripts for the SPA frontend
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:"],
+      },
+    },
+  })
+);
 
 // CORS — only allow the configured frontend origin with credentials
 app.use(
@@ -49,32 +60,12 @@ app.use((req, _res, next) => {
   next();
 });
 
-// Mount routes
+// Serve static frontend (single index.html at /)
+app.use(express.static("public"));
+
+// Mount API routes
 app.use("/api/auth", authRoutes);
 app.use("/api/vault", vaultRoutes);
-
-// Root — simple info so it doesn't show "Cannot GET /"
-app.get("/", (_req, res) => {
-  res.json({
-    name: "vault-api",
-    version: "1.0.0",
-    description:
-      "Backend para Bóveda de Credenciales — solo persiste blob cifrado opaco",
-    endpoints: {
-      health: "GET /health",
-      auth: {
-        register: "POST /api/auth/register",
-        login: "POST /api/auth/login",
-        logout: "POST /api/auth/logout",
-        me: "GET /api/auth/me",
-      },
-      vault: {
-        get: "GET /api/vault",
-        put: "PUT /api/vault",
-      },
-    },
-  });
-});
 
 // Health check
 app.get("/health", (_req, res) => {

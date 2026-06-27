@@ -228,7 +228,7 @@
       <h1>Bóveda de credenciales</h1>
       <p>Inicia sesión en el servidor para sincronizar tu bóveda.</p>
       <div class="lock-input-row">
-        <input type="text" id="login-api-url" placeholder="URL del servidor (ej: https://api.tudominio.com)" value="https://truquini-api.onrender.com">
+        <input type="text" id="login-api-url" placeholder="URL del servidor (ej: http://localhost:3000)">
       </div>
       <div class="lock-input-row">
         <input type="text" id="login-username" placeholder="Usuario" autocomplete="username">
@@ -329,6 +329,9 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
   <script>
+  // Auto-detect API URL from current page origin
+  document.getElementById('login-api-url').value = window.location.origin;
+
   // ============================================================
   // STATE
   // ============================================================

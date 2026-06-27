@@ -407,14 +407,40 @@ async function autosave(){
     });
     if(syncRes.ok){
       SERVER_BLOB = { salt: fileObj.salt, iv: fileObj.iv, data: fileObj.data, version: SERVER_BLOB?.version || 1 };
-      showCopyFeedback("✅ Guardado");
-    } else {
-      showCopyFeedback("⚠️ No se pudo guardar en el servidor");
     }
   }catch(err){
-    showCopyFeedback("⚠️ Error al guardar");
+    // silent fail - user can manually click "Guardar"
   }
 }
+
+// Save/sync to server
+document.getElementById('btn-save').addEventListener('click', async () => {
+  if (!LOGGED_IN_USER) {
+    showCopyFeedback("💻 Modo local — no hay servidor para guardar");
+    return;
+  }
+  try {
+    const fileObj = await encryptVault();
+    const syncRes = await apiCall('PUT', '/api/vault', {
+      salt: fileObj.salt,
+      iv: fileObj.iv,
+      data: fileObj.data,
+    });
+    if (syncRes.ok) {
+      SERVER_BLOB = {
+        salt: fileObj.salt,
+        iv: fileObj.iv,
+        data: fileObj.data,
+        version: SERVER_BLOB?.version || 1,
+      };
+      showCopyFeedback("✅ Guardado en el servidor");
+    } else {
+      showCopyFeedback("⚠️ Error al guardar: " + (syncRes.data?.error || "desconocido"));
+    }
+  } catch (err) {
+    showCopyFeedback("⚠️ Error al conectar con el servidor");
+  }
+});
 
 // ============================================================
 // TABS

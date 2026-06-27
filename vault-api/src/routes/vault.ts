@@ -1,7 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { eq } from "drizzle-orm";
-import { db } from "../db/index.js";
-import { vaultBlobs } from "../db/schema.js";
+import { db, vaultBlobs } from "../db/index.js";
 import { authMiddleware } from "../middleware/auth.js";
 
 const router = Router();
@@ -71,7 +70,7 @@ router.put("/", async (req: Request, res: Response): Promise<void> => {
       .where(eq(vaultBlobs.userId, userId))
       .limit(1);
 
-    const now = new Date();
+    const now = new Date().toISOString();
 
     if (existing.length > 0) {
       // Update existing
@@ -97,7 +96,7 @@ router.put("/", async (req: Request, res: Response): Promise<void> => {
       });
     }
 
-    res.json({ updatedAt: now.toISOString() });
+    res.json({ updatedAt: now });
   } catch (err) {
     console.error("Vault PUT error:", err instanceof Error ? err.message : err);
     res.status(500).json({ error: "Error interno del servidor" });

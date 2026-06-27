@@ -7,12 +7,13 @@ import authRoutes from "./routes/auth.js";
 import vaultRoutes from "./routes/vault.js";
 
 // Validate required environment variables early
-const requiredEnvVars = [
-  "DATABASE_URL",
-  "JWT_SECRET",
-  "FRONTEND_ORIGIN",
-  "PORT",
-] as const;
+const DB_TYPE = process.env.DB_TYPE || "neon";
+const requiredEnvVars = ["JWT_SECRET", "FRONTEND_ORIGIN", "PORT"] as const;
+
+// DATABASE_URL is only required for Neon mode
+if (DB_TYPE !== "sqlite") {
+  requiredEnvVars.push("DATABASE_URL" as never);
+}
 
 for (const varName of requiredEnvVars) {
   if (!process.env[varName]) {
@@ -23,7 +24,7 @@ for (const varName of requiredEnvVars) {
 
 const app = express();
 
-// Security headers — allow inline scripts for the SPA frontend
+// Security headers
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -32,6 +33,7 @@ app.use(
         scriptSrc: ["'self'", "'unsafe-inline'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:"],
+        connectSrc: ["'self'"],
       },
     },
   })
@@ -51,15 +53,6 @@ app.use(cookieParser());
 // Parse JSON bodies — NEVER log vault request bodies
 app.use(express.json());
 
-// Custom middleware: suppress logging of vault request bodies
-app.use((req, _res, next) => {
-  if (req.path.startsWith("/api/vault") && req.method === "PUT") {
-    // Replace body in any potential logging context — we just don't log it at all
-    // The actual req.body is preserved for the route handler
-  }
-  next();
-});
-
 // Serve static frontend (single index.html at /)
 app.use(express.static("public"));
 
@@ -76,6 +69,7 @@ app.get("/health", (_req, res) => {
 const PORT = parseInt(process.env.PORT!, 10);
 app.listen(PORT, () => {
   console.log(`vault-api corriendo en puerto ${PORT}`);
+  console.log(`  DB_TYPE: ${DB_TYPE}`);
 });
 
 export default app;

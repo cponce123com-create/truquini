@@ -2,8 +2,7 @@ import { Router, type Request, type Response } from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { eq } from "drizzle-orm";
-import { db } from "../db/index.js";
-import { users } from "../db/schema.js";
+import { db, users } from "../db/index.js";
 import { loginRateLimiter } from "../middleware/rateLimit.js";
 import { authMiddleware, type AuthPayload } from "../middleware/auth.js";
 

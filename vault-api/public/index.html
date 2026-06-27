@@ -1,733 +1,1255 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Bóveda de Credenciales</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --bg: #0f1117;
-      --surface: #1a1d27;
-      --surface2: #232738;
-      --border: #2e3348;
-      --text: #e1e4ed;
-      --text2: #8b90a5;
-      --accent: #6c63ff;
-      --accent-hover: #7f78ff;
-      --danger: #ff4d6a;
-      --success: #2dd4a0;
-      --radius: 8px;
-      --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
-    }
-    html, body { height: 100%; }
-    body {
-      font-family: var(--font);
-      background: var(--bg);
-      color: var(--text);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .hidden { display: none !important; }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bóveda de credenciales</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#161922; --panel2:#1d2230; --border:#2a2f3d; --border-strong:#3a4156;
+    --text:#e7e9ee; --text-secondary:#9aa1b4; --text-muted:#6b7286;
+    --accent:#5b8cff; --accent-dim:#274080;
+    --danger:#e25c5c; --success:#3ecf8e; --warning:#e2a23a;
+    --radius:10px; --radius-lg:16px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;}
+  body{display:flex;flex-direction:column;}
+  button{font-family:inherit;cursor:pointer;}
+  input,select,textarea{font-family:inherit;}
 
-    /* Cards / Containers */
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 2rem;
-      width: 100%;
-      max-width: 420px;
-    }
-    .card-wide {
-      max-width: 720px;
-      width: 95vw;
-      max-height: 90vh;
-      display: flex;
-      flex-direction: column;
-    }
+  /* ---------- Layout shells ---------- */
+  .screen{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px;}
+  .hidden{display:none !important;}
 
-    h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
-    p.sub { color: var(--text2); font-size: 0.9rem; margin-bottom: 1.5rem; }
+  /* ---------- Lock screen ---------- */
+  .lock-card{
+    width:100%;max-width:380px;background:var(--panel);border:1px solid var(--border);
+    border-radius:var(--radius-lg);padding:32px 28px;text-align:center;
+  }
+  .lock-icon{
+    width:56px;height:56px;border-radius:50%;background:var(--accent-dim);
+    display:flex;align-items:center;justify-content:center;margin:0 auto 18px;
+    font-size:26px;
+  }
+  .lock-card h1{font-size:19px;font-weight:600;margin:0 0 6px;}
+  .lock-card p{font-size:13.5px;color:var(--text-secondary);margin:0 0 22px;line-height:1.5;}
+  .lock-input-row{display:flex;gap:8px;margin-bottom:14px;}
+  .lock-input-row input{
+    flex:1;background:var(--panel2);border:1px solid var(--border);color:var(--text);
+    border-radius:var(--radius);padding:11px 14px;font-size:14.5px;outline:none;
+  }
+  .lock-input-row input:focus{border-color:var(--accent);}
+  .lock-actions{display:flex;flex-direction:column;gap:10px;margin-top:6px;}
+  .btn{
+    border-radius:var(--radius);padding:11px 16px;font-size:14px;font-weight:500;
+    border:1px solid var(--border-strong);background:var(--panel2);color:var(--text);
+    transition:background .15s,border-color .15s;
+  }
+  .btn:hover{background:#242938;}
+  .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .btn-primary:hover{background:#4b7af0;}
+  .btn-danger{background:transparent;border-color:var(--danger);color:var(--danger);}
+  .btn-danger:hover{background:rgba(226,92,92,.1);}
+  .btn-sm{padding:7px 12px;font-size:12.5px;}
+  .btn-block{width:100%;}
+  .file-label{
+    display:flex;align-items:center;justify-content:center;gap:6px;
+    border:1px dashed var(--border-strong);border-radius:var(--radius);
+    padding:11px;font-size:13px;color:var(--text-secondary);cursor:pointer;
+  }
+  .file-label:hover{border-color:var(--accent);color:var(--text);}
+  .lock-divider{display:flex;align-items:center;gap:10px;margin:18px 0;color:var(--text-muted);font-size:12px;}
+  .lock-divider::before,.lock-divider::after{content:"";flex:1;height:1px;background:var(--border);}
+  .lock-error{color:var(--danger);font-size:12.5px;margin-top:10px;min-height:16px;}
+  .lock-note{font-size:11.5px;color:var(--text-muted);margin-top:16px;line-height:1.6;}
 
-    /* Forms */
-    label { display: block; font-size: 0.85rem; color: var(--text2); margin-bottom: 0.4rem; margin-top: 1rem; }
-    label:first-child { margin-top: 0; }
-    input[type="text"],
-    input[type="password"],
-    input[type="url"] {
-      width: 100%;
-      padding: 0.7rem 0.9rem;
-      border-radius: var(--radius);
-      border: 1px solid var(--border);
-      background: var(--surface2);
-      color: var(--text);
-      font-size: 0.95rem;
-      outline: none;
-      transition: border 0.15s;
-    }
-    input:focus { border-color: var(--accent); }
+  /* ---------- App shell ---------- */
+  #app-screen{display:none;flex-direction:column;height:100vh;width:100%;align-items:stretch;justify-content:flex-start;padding:0;}
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 22px;border-bottom:1px solid var(--border);background:var(--panel);
+    flex-wrap:wrap;gap:10px;
+  }
+  .topbar-left{display:flex;align-items:center;gap:10px;}
+  .brand{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px;}
+  .brand-dot{width:8px;height:8px;border-radius:50%;background:var(--success);}
+  .topbar-right{display:flex;gap:8px;flex-wrap:wrap;}
 
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0.4rem;
-      padding: 0.65rem 1.2rem;
-      border: none;
-      border-radius: var(--radius);
-      font-size: 0.9rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.15s, opacity 0.15s;
-    }
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-    .btn-primary { background: var(--accent); color: #fff; }
-    .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
-    .btn-danger { background: var(--danger); color: #fff; }
-    .btn-danger:hover:not(:disabled) { opacity: 0.85; }
-    .btn-outline {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text);
-    }
-    .btn-outline:hover:not(:disabled) { border-color: var(--text2); }
-    .btn-sm { padding: 0.4rem 0.75rem; font-size: 0.8rem; }
-    .btn-full { width: 100%; margin-top: 1.2rem; }
+  .tabs{display:flex;gap:4px;padding:0 22px;border-bottom:1px solid var(--border);background:var(--panel);}
+  .tab{
+    padding:11px 14px;font-size:13.5px;color:var(--text-secondary);border-bottom:2px solid transparent;
+    cursor:pointer;user-select:none;
+  }
+  .tab.active{color:var(--text);border-color:var(--accent);}
+  .tab:hover{color:var(--text);}
 
-    .error-msg {
-      background: rgba(255, 77, 106, 0.12);
-      border: 1px solid var(--danger);
-      color: var(--danger);
-      padding: 0.6rem 0.9rem;
-      border-radius: var(--radius);
-      font-size: 0.85rem;
-      margin-top: 0.8rem;
-    }
-    .success-msg {
-      background: rgba(45, 212, 160, 0.12);
-      border: 1px solid var(--success);
-      color: var(--success);
-      padding: 0.6rem 0.9rem;
-      border-radius: var(--radius);
-      font-size: 0.85rem;
-      margin-top: 0.8rem;
-    }
+  .main{flex:1;overflow:auto;padding:20px 22px 60px;}
 
-    /* Toolbar */
-    .toolbar {
-      display: flex;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-      margin-bottom: 1.2rem;
-      align-items: center;
-    }
-    .toolbar .spacer { flex: 1; }
-    .user-badge { color: var(--text2); font-size: 0.85rem; }
+  /* ---------- Stat strip ---------- */
+  .stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;}
+  .stat{
+    background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
+    padding:12px 16px;min-width:110px;
+  }
+  .stat .num{font-size:20px;font-weight:600;}
+  .stat .lbl{font-size:11.5px;color:var(--text-muted);margin-top:2px;}
 
-    /* Credential list */
-    .cred-list { flex: 1; overflow-y: auto; min-height: 0; }
-    .cred-item {
-      display: flex;
-      align-items: center;
-      gap: 0.8rem;
-      padding: 0.75rem 0.9rem;
-      border-radius: var(--radius);
-      background: var(--surface2);
-      margin-bottom: 0.5rem;
-      cursor: pointer;
-      transition: background 0.1s;
-    }
-    .cred-item:hover { background: #2a2f45; }
-    .cred-item .info { flex: 1; min-width: 0; }
-    .cred-item .name { font-weight: 600; font-size: 0.9rem; }
-    .cred-item .detail { font-size: 0.8rem; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .cred-item .actions { display: flex; gap: 0.3rem; }
-    .empty-state { text-align: center; padding: 2rem 0; color: var(--text2); font-size: 0.9rem; }
+  /* ---------- Cards / list view ---------- */
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px;}
+  .search-input{
+    flex:1;min-width:160px;background:var(--panel2);border:1px solid var(--border);color:var(--text);
+    border-radius:var(--radius);padding:9px 12px;font-size:13.5px;outline:none;
+  }
+  .search-input:focus{border-color:var(--accent);}
+  select.filter{
+    background:var(--panel2);border:1px solid var(--border);color:var(--text);
+    border-radius:var(--radius);padding:9px 10px;font-size:13px;outline:none;
+  }
 
-    /* Modal / overlay */
-    .overlay {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.6);
-      display: flex; align-items: center; justify-content: center;
-      z-index: 100;
-    }
-    .modal {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1.8rem;
-      width: 90vw;
-      max-width: 440px;
-    }
-    .modal h2 { font-size: 1.2rem; margin-bottom: 0.2rem; }
-    .modal p.sub { margin-bottom: 1.2rem; }
+  .card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;}
+  .acc-card{
+    background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
+    padding:14px 16px;cursor:pointer;transition:border-color .15s;
+  }
+  .acc-card:hover{border-color:var(--border-strong);}
+  .acc-card-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
+  .acc-card-name{font-weight:600;font-size:14.5px;display:flex;align-items:center;gap:8px;}
+  .swatch{width:9px;height:9px;border-radius:50%;flex:none;}
+  .badge{
+    font-size:10.5px;padding:2px 8px;border-radius:999px;color:var(--text-secondary);
+    background:var(--panel2);border:1px solid var(--border);white-space:nowrap;
+  }
+  .acc-card-row{font-size:12.5px;color:var(--text-secondary);display:flex;justify-content:space-between;gap:8px;margin-top:4px;}
+  .acc-card-row span:last-child{color:var(--text);font-family:ui-monospace,monospace;}
+  .empty-state{
+    text-align:center;padding:50px 20px;color:var(--text-muted);font-size:13.5px;
+    border:1px dashed var(--border);border-radius:var(--radius-lg);
+  }
 
-    /* Scrollbar */
-    .cred-list::-webkit-scrollbar { width: 6px; }
-    .cred-list::-webkit-scrollbar-track { background: transparent; }
-    .cred-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-  </style>
+  /* ---------- Graph view ---------- */
+  #graph-wrap{
+    background:var(--panel);border:1px solid var(--border);border-radius:var(--radius-lg);
+    position:relative;overflow:hidden;height:62vh;min-height:420px;
+  }
+  #graph-svg{width:100%;height:100%;display:block;}
+  .legend{
+    position:absolute;top:12px;left:12px;background:rgba(22,25,34,.9);border:1px solid var(--border);
+    border-radius:var(--radius);padding:10px 12px;font-size:11.5px;color:var(--text-secondary);
+    display:flex;flex-direction:column;gap:5px;backdrop-filter:blur(4px);
+  }
+  .legend-item{display:flex;align-items:center;gap:6px;}
+  .legend-dot{width:8px;height:8px;border-radius:50%;flex:none;}
+  .graph-hint{
+    position:absolute;bottom:12px;left:12px;font-size:11px;color:var(--text-muted);
+    background:rgba(22,25,34,.85);padding:5px 10px;border-radius:6px;
+  }
+  .graph-controls{position:absolute;top:12px;right:12px;display:flex;gap:6px;}
+  .icon-btn{
+    width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:rgba(22,25,34,.9);
+    color:var(--text-secondary);font-size:14px;display:flex;align-items:center;justify-content:center;
+  }
+  .icon-btn:hover{color:var(--text);border-color:var(--border-strong);}
+
+  .gnode{cursor:pointer;}
+  .gnode circle{transition:r .12s,stroke-width .12s;}
+  .gnode:hover circle{stroke-width:2.5;}
+  .gnode text{font-size:11px;fill:var(--text);pointer-events:none;font-family:var(--font);}
+  .gnode .sub{font-size:9px;fill:var(--text-muted);}
+  .glink{stroke:var(--border-strong);stroke-width:1.4;}
+  .glink.cross{stroke:var(--warning);stroke-dasharray:4 3;}
+  .glink-label{font-size:9.5px;fill:var(--text-muted);pointer-events:none;}
+
+  /* ---------- Modal ---------- */
+  .modal-overlay{
+    position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;
+    z-index:50;padding:20px;
+  }
+  .modal{
+    background:var(--panel);border:1px solid var(--border);border-radius:var(--radius-lg);
+    width:100%;max-width:480px;max-height:88vh;overflow:auto;padding:24px;
+  }
+  .modal h2{font-size:16.5px;margin:0 0 16px;font-weight:600;}
+  .field{margin-bottom:13px;}
+  .field label{display:block;font-size:12px;color:var(--text-secondary);margin-bottom:5px;}
+  .field input,.field select,.field textarea{
+    width:100%;background:var(--panel2);border:1px solid var(--border);color:var(--text);
+    border-radius:var(--radius);padding:9px 11px;font-size:13.5px;outline:none;
+  }
+  .field input:focus,.field select:focus,.field textarea:focus{border-color:var(--accent);}
+  .field textarea{resize:vertical;min-height:60px;font-family:ui-monospace,monospace;font-size:12.5px;}
+  .pw-row{position:relative;}
+  .pw-row input{padding-right:38px;}
+  .pw-toggle{
+    position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;
+    color:var(--text-muted);font-size:12px;padding:4px;
+  }
+  .pw-toggle:hover{color:var(--text);}
+  .field-row{display:flex;gap:10px;}
+  .field-row .field{flex:1;}
+  .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap;}
+  .modal-actions-left{margin-right:auto;}
+
+  /* relation list inside detail modal */
+  .rel-list{display:flex;flex-direction:column;gap:6px;margin-top:6px;}
+  .rel-item{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:12.5px;
+  }
+  .rel-item .x{color:var(--text-muted);background:none;border:none;font-size:13px;padding:0 2px;}
+  .rel-item .x:hover{color:var(--danger);}
+  .add-rel-row{display:flex;gap:6px;margin-top:8px;}
+  .add-rel-row select{flex:1;}
+  .add-rel-row input{flex:1;}
+
+  .copy-feedback{
+    position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+    background:var(--success);color:#06281a;font-size:13px;font-weight:500;
+    padding:9px 18px;border-radius:999px;z-index:100;opacity:0;transition:opacity .2s,transform .2s;
+    pointer-events:none;
+  }
+  .copy-feedback.show{opacity:1;transform:translateX(-50%) translateY(-6px);}
+
+  @media (max-width:640px){
+    .lock-card{padding:26px 20px;}
+    .main{padding:16px 14px 60px;}
+    .topbar{padding:12px 14px;}
+    .tabs{padding:0 14px;}
+  }
+</style>
 </head>
 <body>
 
-<!-- ==================== LOGIN ==================== -->
-<div id="screen-login" class="card">
-  <h1>🔐 Bóveda de Credenciales</h1>
-  <p class="sub">Inicia sesión para acceder a tu bóveda</p>
-  <form id="form-login" autocomplete="on">
-    <label for="login-username">Usuario</label>
-    <input type="text" id="login-username" autocomplete="username" required />
-    <label for="login-password">Contraseña</label>
-    <input type="password" id="login-password" autocomplete="current-password" required />
-    <div id="login-error" class="error-msg hidden"></div>
-    <button type="submit" class="btn btn-primary btn-full" id="btn-login">Iniciar sesión</button>
-  </form>
-</div>
-
-<!-- ==================== MASTER PASSWORD ==================== -->
-<div id="screen-master" class="card hidden">
-  <h1 id="master-title">🔑 Desbloquear bóveda</h1>
-  <p class="sub" id="master-sub">Ingresa tu contraseña maestra para descifrar tus credenciales</p>
-  <form id="form-master" autocomplete="off">
-    <label for="master-password">Contraseña maestra</label>
-    <input type="password" id="master-password" autocomplete="off" required />
-    <label for="master-confirm" id="master-confirm-label" class="hidden">Confirmar contraseña maestra</label>
-    <input type="password" id="master-confirm" class="hidden" autocomplete="off" />
-    <div id="master-error" class="error-msg hidden"></div>
-    <button type="submit" class="btn btn-primary btn-full" id="btn-master">Desbloquear</button>
-  </form>
-</div>
-
-<!-- ==================== VAULT ==================== -->
-<div id="screen-vault" class="card card-wide hidden">
-  <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.25rem;">
-    <span style="font-size:1.4rem;">🔐</span>
-    <h1 style="margin-bottom:0;">Bóveda</h1>
-  </div>
-  <p class="sub" id="vault-status">Cargando...</p>
-
-  <div class="toolbar">
-    <button class="btn btn-primary btn-sm" id="btn-add">+ Agregar</button>
-    <button class="btn btn-outline btn-sm" id="btn-import">📥 Importar</button>
-    <button class="btn btn-outline btn-sm" id="btn-export">📤 Exportar</button>
-    <input type="file" id="file-input" accept=".vault,.json" class="hidden" />
-    <span class="spacer"></span>
-    <span class="user-badge" id="vault-username"></span>
-    <button class="btn btn-outline btn-sm" id="btn-logout">Cerrar sesión</button>
-  </div>
-
-  <div class="cred-list" id="cred-list">
-    <div class="empty-state">No hay credenciales guardadas. Haz clic en "Agregar" para empezar.</div>
-  </div>
-</div>
-
-<!-- ==================== MODAL CREDENTIAL ==================== -->
-<div id="modal-cred" class="overlay hidden">
-  <div class="modal">
-    <h2 id="modal-cred-title">Nueva credencial</h2>
-    <p class="sub">Completa los campos</p>
-    <form id="form-cred" autocomplete="off">
-      <label for="cred-name">Nombre / Servicio</label>
-      <input type="text" id="cred-name" required />
-      <label for="cred-username">Usuario</label>
-      <input type="text" id="cred-username" />
-      <label for="cred-password">Contraseña</label>
-      <input type="text" id="cred-password" />
-      <label for="cred-url">URL</label>
-      <input type="url" id="cred-url" />
-      <div id="cred-error" class="error-msg hidden"></div>
-      <div style="display:flex;gap:0.5rem;margin-top:1.2rem;">
-        <button type="button" class="btn btn-outline" style="flex:1;" id="btn-cred-cancel">Cancelar</button>
-        <button type="submit" class="btn btn-primary" style="flex:1;" id="btn-cred-save">Guardar</button>
+  <!-- ============ LOGIN SCREEN (server auth) ============ -->
+  <div class="screen" id="login-screen">
+    <div class="lock-card">
+      <div class="lock-icon">🔐</div>
+      <h1>Bóveda de credenciales</h1>
+      <p>Inicia sesión en el servidor para sincronizar tu bóveda.</p>
+      <div class="lock-input-row">
+        <input type="text" id="login-api-url" placeholder="URL del servidor (ej: https://api.tudominio.com)" value="https://truquini-api.onrender.com">
       </div>
-    </form>
+      <div class="lock-input-row">
+        <input type="text" id="login-username" placeholder="Usuario" autocomplete="username">
+      </div>
+      <div class="lock-input-row">
+        <input type="password" id="login-password" placeholder="Contraseña" autocomplete="current-password">
+      </div>
+      <div class="lock-actions">
+        <button class="btn btn-primary btn-block" id="btn-login">Iniciar sesión</button>
+      </div>
+      <div class="lock-error" id="login-error"></div>
+      <div class="lock-note" style="display:flex;gap:4px;flex-wrap:wrap;">
+        <button class="btn btn-sm" id="btn-skip-login" style="flex:1;">↻ Saltar login (solo local)</button>
+      </div>
+    </div>
   </div>
-</div>
 
-<script>
-// ==================== CONFIG ====================
-const API = window.location.origin;
-const PBKDF2_ITERATIONS = 600000;
-const VAULT_FILE_EXT = '.vault';
+  <!-- ============ LOCK SCREEN ============ -->
+  <div class="screen" id="lock-screen" style="display:none;">
+    <div class="lock-card">
+      <div class="lock-icon">🔒</div>
+      <h1 id="lock-title">Bóveda de credenciales</h1>
+      <p id="lock-sub">Crea una contraseña maestra nueva, o carga un archivo .vault que ya tengas.</p>
 
-// ==================== STATE ====================
-let state = {
-  username: null,
-  masterPassword: null,
-  salt: null,      // base64
-  iv: null,        // base64
-  data: null,      // base64 ciphertext
-  version: null,
-  credentials: [], // descifrados
-  editingIndex: -1,
-};
+      <div class="lock-input-row">
+        <input type="password" id="master-pass" placeholder="Contraseña maestra" autocomplete="new-password">
+      </div>
+      <div class="lock-input-row hidden" id="confirm-row">
+        <input type="password" id="master-pass-confirm" placeholder="Confirma la contraseña maestra" autocomplete="new-password">
+      </div>
 
-// ==================== DOM REFS ====================
-const $ = (id) => document.getElementById(id);
+      <div class="lock-actions">
+        <button class="btn btn-primary btn-block" id="btn-create-new">Crear bóveda nueva</button>
+        <label class="file-label" id="file-label">
+          📂 Cargar archivo .vault existente
+          <input type="file" id="file-input" accept=".vault,.json" style="display:none;">
+        </label>
+        <button class="btn btn-block hidden" id="btn-unlock" style="display:none;">Desbloquear</button>
+      </div>
 
-// Screens
-const scrLogin  = $('screen-login');
-const scrMaster = $('screen-master');
-const scrVault  = $('screen-vault');
+      <div class="lock-error" id="lock-error"></div>
+      <div class="lock-note">
+        Cifrado AES-256-GCM en tu navegador. Tu contraseña maestra nunca se guarda ni se envía a ningún servidor — si la olvidas, no hay forma de recuperar los datos.
+      </div>
+    </div>
+  </div>
 
-// Login
-const formLogin      = $('form-login');
-const inpLoginUser   = $('login-username');
-const inpLoginPass   = $('login-password');
-const loginError     = $('login-error');
-const btnLogin       = $('btn-login');
+  <!-- ============ APP SCREEN ============ -->
+  <div id="app-screen">
+    <div class="topbar">
+      <div class="topbar-left">
+        <div class="brand"><span class="brand-dot"></span> Bóveda de credenciales</div>
+      </div>
+      <div class="topbar-right">
+        <button class="btn btn-sm" id="btn-add-account">+ Cuenta</button>
+        <button class="btn btn-sm" id="btn-export">⬇ Exportar .vault</button>
+        <span id="sync-indicator" style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:4px;"></span>
+        <button class="btn btn-sm btn-danger" id="btn-lock">Bloquear</button>
+      </div>
+    </div>
 
-// Master
-const formMaster     = $('form-master');
-const inpMasterPass  = $('master-password');
-const inpMasterConf  = $('master-confirm');
-const masterTitle    = $('master-title');
-const masterSub      = $('master-sub');
-const masterError    = $('master-error');
-const masterConfLabel = $('master-confirm-label');
-const btnMaster      = $('btn-master');
+    <div class="tabs">
+      <div class="tab active" data-tab="list">Lista</div>
+      <div class="tab" data-tab="graph">Mapa de relaciones</div>
+    </div>
 
-// Vault
-const vaultStatus    = $('vault-status');
-const credList       = $('cred-list');
-const vaultUsername  = $('vault-username');
-const btnAdd         = $('btn-add');
-const btnImport      = $('btn-import');
-const btnExport      = $('btn-export');
-const btnLogout      = $('btn-logout');
-const fileInput      = $('file-input');
+    <div class="main">
+      <div class="stats" id="stats-row"></div>
 
-// Modal
-const modalCred      = $('modal-cred');
-const formCred       = $('form-cred');
-const credName       = $('cred-name');
-const credUsername   = $('cred-username');
-const credPassword   = $('cred-password');
-const credUrl        = $('cred-url');
-const credError      = $('cred-error');
-const btnCredCancel  = $('btn-cred-cancel');
-const btnCredSave    = $('btn-cred-save');
-const modalCredTitle = $('modal-cred-title');
+      <!-- LIST VIEW -->
+      <div id="view-list">
+        <div class="toolbar">
+          <input class="search-input" id="search-input" placeholder="Buscar por servicio, usuario, correo...">
+          <select class="filter" id="filter-category">
+            <option value="">Todas las categorías</option>
+          </select>
+        </div>
+        <div class="card-grid" id="card-grid"></div>
+      </div>
 
-// ==================== API HELPERS ====================
-async function api(method, path, body) {
-  const opts = {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
+      <!-- GRAPH VIEW -->
+      <div id="view-graph" class="hidden">
+        <div id="graph-wrap">
+          <svg id="graph-svg"></svg>
+          <div class="legend" id="graph-legend"></div>
+          <div class="graph-controls">
+            <button class="icon-btn" id="zoom-in" title="Acercar">+</button>
+            <button class="icon-btn" id="zoom-out" title="Alejar">−</button>
+            <button class="icon-btn" id="zoom-reset" title="Restablecer">⟳</button>
+          </div>
+          <div class="graph-hint">Arrastra los nodos · clic para ver detalle · rueda para zoom</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="copy-feedback" id="copy-feedback">Copiado al portapapeles</div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+  <script>
+  // ============================================================
+  // STATE
+  // ============================================================
+  let VAULT = { emails: [], accounts: [], links: [] };
+  let MASTER_KEY = null;     // CryptoKey, never serialized
+  let MASTER_SALT = null;    // Uint8Array, stored alongside ciphertext
+  let isNewVault = true;
+  let activeFileBaseName = "boveda";
+
+  // ============================================================
+  // BACKEND SYNC STATE
+  // ============================================================
+  let API_URL = "";            // ej: https://api.onrender.com
+  let LOGGED_IN_USER = null;  // username or null if offline
+  let SERVER_BLOB = null;     // { salt, iv, data, version } from server
+
+  async function apiCall(method, path, body) {
+    try {
+      const opts = {
+        method,
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      };
+      if (body) opts.body = JSON.stringify(body);
+      const res = await fetch(`${API_URL}${path}`, opts);
+      const data = await res.json().catch(() => ({}));
+      return { ok: res.ok, status: res.status, data };
+    } catch {
+      return { ok: false, status: 0, data: { error: "No se pudo conectar al servidor" } };
+    }
+  }
+
+  const CATEGORY_COLORS = {
+    "correo":      "#5b8cff",
+    "hosting":     "#3ecf8e",
+    "base de datos":"#9b6bff",
+    "social":      "#e2a23a",
+    "mensajería":  "#3ab0e2",
+    "ia":          "#e25c9e",
+    "banco":       "#e25c5c",
+    "monitoreo":   "#5cc9c0",
+    "otro":        "#9aa1b4"
   };
-  if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(`${API}${path}`, opts);
-  const data = await res.json().catch(() => ({}));
-  return { ok: res.ok, status: res.status, data };
-}
+  function colorFor(cat){ return CATEGORY_COLORS[(cat||"otro").toLowerCase()] || CATEGORY_COLORS["otro"]; }
 
-// ==================== CRYPTO ====================
-async function deriveKey(password, saltB64) {
-  const salt = U8.fromB64(saltB64);
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']
-  );
-  return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
-    keyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt']
-  );
-}
+  function uid(){ return 'id_' + Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4); }
 
-async function encrypt(plaintext, password) {
-  const salt = crypto.getRandomValues(new Uint8Array(32));
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await deriveKey(password, U8.toB64(salt));
-  const encoded = new TextEncoder().encode(plaintext);
-  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
-  return {
-    salt: U8.toB64(salt),
-    iv: U8.toB64(iv),
-    data: U8.toB64(new Uint8Array(ciphertext)),
-  };
-}
+  // ============================================================
+  // CRYPTO  (AES-256-GCM + PBKDF2)
+  // ============================================================
+  async function deriveKey(password, saltBytes){
+    const enc = new TextEncoder();
+    const baseKey = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
+    return crypto.subtle.deriveKey(
+      { name:"PBKDF2", salt: saltBytes, iterations: 310000, hash:"SHA-256" },
+      baseKey,
+      { name:"AES-GCM", length:256 },
+      false,
+      ["encrypt","decrypt"]
+    );
+  }
 
-async function decrypt(saltB64, ivB64, dataB64, password) {
-  const key = await deriveKey(password, saltB64);
-  const iv = U8.fromB64(ivB64);
-  const ciphertext = U8.fromB64(dataB64);
-  const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
-  return new TextDecoder().decode(decrypted);
-}
+  function bufToB64(buf){
+    return btoa(String.fromCharCode(...new Uint8Array(buf)));
+  }
+  function b64ToBuf(b64){
+    const bin = atob(b64);
+    const arr = new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+    return arr;
+  }
 
-// Uint8Array helpers
-const U8 = {
-  toB64: (u8) => btoa(String.fromCharCode(...u8)),
-  fromB64: (s) => Uint8Array.from(atob(s), c => c.charCodeAt(0)),
-};
+  async function encryptVault(){
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const enc = new TextEncoder();
+    const plaintext = enc.encode(JSON.stringify(VAULT));
+    const cipherBuf = await crypto.subtle.encrypt({name:"AES-GCM", iv}, MASTER_KEY, plaintext);
+    return {
+      v: 1,
+      salt: bufToB64(MASTER_SALT),
+      iv: bufToB64(iv),
+      data: bufToB64(cipherBuf)
+    };
+  }
 
-// ==================== SCREEN MANAGEMENT ====================
-function showScreen(screen) {
-  [scrLogin, scrMaster, scrVault].forEach(s => s.classList.add('hidden'));
-  screen.classList.remove('hidden');
-}
+  async function decryptVault(fileObj, password){
+    const salt = b64ToBuf(fileObj.salt);
+    const iv = b64ToBuf(fileObj.iv);
+    const key = await deriveKey(password, salt);
+    const cipherBuf = b64ToBuf(fileObj.data);
+    const plainBuf = await crypto.subtle.decrypt({name:"AES-GCM", iv}, key, cipherBuf);
+    const dec = new TextDecoder();
+    const json = JSON.parse(dec.decode(plainBuf));
+    return { key, salt, data: json };
+  }
 
-function showError(el, msg) {
-  el.textContent = msg;
-  el.classList.remove('hidden');
-}
-function clearError(el) { el.classList.add('hidden'); }
+  // ============================================================
+  // LOGIN SCREEN (backend auth)
+  // ============================================================
+  const loginScreen = document.getElementById('login-screen');
+  const loginApiUrl = document.getElementById('login-api-url');
+  const loginUsername = document.getElementById('login-username');
+  const loginPassword = document.getElementById('login-password');
+  const loginError = document.getElementById('login-error');
+  const btnLogin = document.getElementById('btn-login');
+  const btnSkipLogin = document.getElementById('btn-skip-login');
 
-// ==================== AUTH ====================
-formLogin.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  clearError(loginError);
-  btnLogin.disabled = true;
-  btnLogin.textContent = 'Ingresando...';
+  function showLoginError(msg) {
+    loginError.textContent = msg;
+    loginError.style.display = 'block';
+  }
+  function clearLoginError() { loginError.style.display = 'none'; }
 
-  const { ok, data } = await api('POST', '/api/auth/login', {
-    username: inpLoginUser.value.trim(),
-    password: inpLoginPass.value,
-  });
+  btnLogin.addEventListener('click', async () => {
+    clearLoginError();
+    const url = loginApiUrl.value.trim().replace(/\/+$/, '');
+    const user = loginUsername.value.trim();
+    const pass = loginPassword.value;
 
-  if (!ok) {
-    showError(loginError, data.error || 'Error al iniciar sesión');
+    if (!url) { showLoginError('Ingresa la URL del servidor.'); return; }
+    if (!user || !pass) { showLoginError('Ingresa usuario y contraseña.'); return; }
+
+    API_URL = url;
+    btnLogin.disabled = true;
+    btnLogin.textContent = 'Iniciando sesión...';
+
+    const { ok, data } = await apiCall('POST', '/api/auth/login', {
+      username: user,
+      password: pass,
+    });
+
+    if (!ok) {
+      showLoginError(data.error || 'Error al iniciar sesión');
+      btnLogin.disabled = false;
+      btnLogin.textContent = 'Iniciar sesión';
+      return;
+    }
+
+    LOGGED_IN_USER = data.username;
+    loginPassword.value = '';
     btnLogin.disabled = false;
     btnLogin.textContent = 'Iniciar sesión';
-    return;
-  }
 
-  state.username = data.username;
-  inpLoginPass.value = '';
-  btnLogin.disabled = false;
-  btnLogin.textContent = 'Iniciar sesión';
-  await afterLogin();
-});
-
-async function afterLogin() {
-  // Check if vault exists
-  const { ok, status, data } = await api('GET', '/api/vault');
-
-  if (ok) {
-    // Vault exists — need master password to decrypt
-    state.salt = data.salt;
-    state.iv = data.iv;
-    state.data = data.data;
-    state.version = data.version;
-    showMasterScreen('unlock');
-  } else if (status === 404) {
-    // No vault yet — create new
-    state.salt = null;
-    state.iv = null;
-    state.data = null;
-    state.version = null;
-    showMasterScreen('create');
-  } else {
-    showError(loginError, data.error || 'Error al conectar con el servidor');
-  }
-}
-
-function showMasterScreen(mode) {
-  clearError(masterError);
-  inpMasterPass.value = '';
-  inpMasterConf.value = '';
-
-  if (mode === 'create') {
-    masterTitle.textContent = '🆕 Crear bóveda nueva';
-    masterSub.textContent = 'Elige una contraseña maestra para cifrar tus credenciales. Esta contraseña nunca se envía al servidor.';
-    masterConfLabel.classList.remove('hidden');
-    inpMasterConf.classList.remove('hidden');
-    btnMaster.textContent = 'Crear bóveda';
-    $('master-confirm-label').textContent = 'Confirmar contraseña maestra';
-  } else {
-    masterTitle.textContent = '🔑 Desbloquear bóveda';
-    masterSub.textContent = 'Ingresa tu contraseña maestra para descifrar tus credenciales';
-    masterConfLabel.classList.add('hidden');
-    inpMasterConf.classList.add('hidden');
-    btnMaster.textContent = 'Desbloquear';
-  }
-  showScreen(scrMaster);
-}
-
-formMaster.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  clearError(masterError);
-  const password = inpMasterPass.value;
-
-  if (masterConfLabel.classList.contains('hidden')) {
-    // Unlock mode
-    btnMaster.disabled = true;
-    btnMaster.textContent = 'Descifrando...';
-    try {
-      const json = await decrypt(state.salt, state.iv, state.data, password);
-      state.masterPassword = password;
-      state.credentials = JSON.parse(json);
-      inpMasterPass.value = '';
-      showVaultScreen();
-    } catch {
-      showError(masterError, 'Contraseña maestra incorrecta. Los datos no pudieron descifrarse.');
+    // Check if vault exists on server
+    const vaultRes = await apiCall('GET', '/api/vault');
+    if (vaultRes.ok) {
+      // Vault exists — save blob and go to unlock screen with it
+      SERVER_BLOB = vaultRes.data;
+      pendingFileObj = {
+        salt: SERVER_BLOB.salt,
+        iv: SERVER_BLOB.iv,
+        data: SERVER_BLOB.data,
+      };
+      isNewVault = false;
+      confirmRow.classList.add('hidden');
+      masterPassConfirm.value = '';
+      lockTitle.textContent = 'Desbloquear bóveda del servidor';
+      lockSub.textContent = 'Ingresa tu contraseña maestra para descifrar la bóveda sincronizada.';
+      btnCreateNew.style.display = 'none';
+      btnUnlock.style.display = 'block';
+      fileLabel.style.display = 'none';
+      masterPassInput.value = '';
+      lockError.textContent = '';
+      loginScreen.style.display = 'none';
+      lockScreen.style.display = 'flex';
+      masterPassInput.focus();
+    } else if (vaultRes.status === 404) {
+      // No vault yet — go to lock screen to create new
+      SERVER_BLOB = null;
+      loginScreen.style.display = 'none';
+      lockScreen.style.display = 'flex';
+      lockTitle.textContent = 'Crear bóveda nueva';
+      lockSub.textContent = 'Elige una contraseña maestra para cifrar tus credenciales.';
+      confirmRow.classList.remove('hidden');
+      btnCreateNew.style.display = 'block';
+      btnCreateNew.textContent = 'Crear bóveda nueva';
+      btnUnlock.style.display = 'none';
+      fileLabel.style.display = 'flex';
+      masterPassInput.value = '';
+      masterPassConfirm.value = '';
+      lockError.textContent = '';
+    } else {
+      showLoginError(vaultRes.data.error || 'Error al conectar con el servidor');
     }
-    btnMaster.disabled = false;
-    btnMaster.textContent = 'Desbloquear';
-  } else {
-    // Create mode
-    if (password !== inpMasterConf.value) {
-      showError(masterError, 'Las contraseñas no coinciden.');
+  });
+
+  btnSkipLogin.addEventListener('click', () => {
+    API_URL = loginApiUrl.value.trim().replace(/\/+$/, '');
+    LOGGED_IN_USER = null;
+    SERVER_BLOB = null;
+    loginScreen.style.display = 'none';
+    lockScreen.style.display = 'flex';
+    // Reset lock screen to default state
+    lockTitle.textContent = 'Bóveda de credenciales';
+    lockSub.textContent = 'Crea una contraseña maestra nueva, o carga un archivo .vault que ya tengas.';
+    confirmRow.classList.add('hidden');
+    btnCreateNew.style.display = 'block';
+    btnCreateNew.textContent = 'Crear bóveda nueva';
+    btnUnlock.style.display = 'none';
+    fileLabel.style.display = 'flex';
+    masterPassInput.value = '';
+    masterPassConfirm.value = '';
+    lockError.textContent = '';
+  });
+
+  // Also submit on Enter in password field
+  loginPassword.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') btnLogin.click();
+  });
+
+  // ============================================================
+  // LOCK SCREEN LOGIC
+  // ============================================================
+  const lockScreen = document.getElementById('lock-screen');
+  const appScreen = document.getElementById('app-screen');
+  const masterPassInput = document.getElementById('master-pass');
+  const confirmRow = document.getElementById('confirm-row');
+  const masterPassConfirm = document.getElementById('master-pass-confirm');
+  const lockError = document.getElementById('lock-error');
+  const lockTitle = document.getElementById('lock-title');
+  const lockSub = document.getElementById('lock-sub');
+  const btnCreateNew = document.getElementById('btn-create-new');
+  const btnUnlock = document.getElementById('btn-unlock');
+  const fileInput = document.getElementById('file-input');
+  const fileLabel = document.getElementById('file-label');
+
+  let pendingFileObj = null;
+
+  fileInput.addEventListener('change', (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    activeFileBaseName = file.name.replace(/\.(vault|json)$/i,'') || 'boveda';
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      try{
+        const parsed = JSON.parse(reader.result);
+        if(!parsed.salt || !parsed.iv || !parsed.data){
+          lockError.textContent = "Este archivo no parece ser un .vault válido.";
+          return;
+        }
+        pendingFileObj = parsed;
+        isNewVault = false;
+        confirmRow.classList.add('hidden');
+        masterPassConfirm.value='';
+        lockTitle.textContent = "Desbloquear bóveda";
+        lockSub.textContent = "Ingresa tu contraseña maestra para abrir " + file.name;
+        btnCreateNew.style.display='none';
+        btnUnlock.style.display='block';
+        fileLabel.style.display='none';
+        masterPassInput.value='';
+        masterPassInput.focus();
+        lockError.textContent='';
+      }catch(err){
+        lockError.textContent = "No se pudo leer el archivo: " + err.message;
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  btnCreateNew.addEventListener('click', ()=>{
+    if(confirmRow.classList.contains('hidden')){
+      // first click: ask to confirm password
+      if(!masterPassInput.value || masterPassInput.value.length < 6){
+        lockError.textContent = "Usa al menos 6 caracteres para tu contraseña maestra.";
+        return;
+      }
+      confirmRow.classList.remove('hidden');
+      masterPassConfirm.focus();
+      lockError.textContent='';
+      btnCreateNew.textContent = "Confirmar y crear";
       return;
     }
-    if (password.length < 4) {
-      showError(masterError, 'La contraseña maestra debe tener al menos 4 caracteres.');
+    if(masterPassInput.value !== masterPassConfirm.value){
+      lockError.textContent = "Las contraseñas no coinciden.";
       return;
     }
-    btnMaster.disabled = true;
-    btnMaster.textContent = 'Creando bóveda...';
-    state.masterPassword = password;
-    state.credentials = [];
-    inpMasterPass.value = '';
-    inpMasterConf.value = '';
-    await saveVaultToServer();
-    btnMaster.disabled = false;
-    btnMaster.textContent = 'Crear bóveda';
-    showVaultScreen();
-  }
-});
+    createNewVault(masterPassInput.value);
+  });
 
-// ==================== VAULT SCREEN ====================
-function showVaultScreen() {
-  vaultUsername.textContent = `👤 ${state.username}`;
-  renderCredentials();
-  showScreen(scrVault);
-}
+  btnUnlock.addEventListener('click', async ()=>{
+    const pw = masterPassInput.value;
+    if(!pw){ lockError.textContent = "Ingresa tu contraseña maestra."; return; }
+    btnUnlock.disabled = true;
+    btnUnlock.textContent = "Desbloqueando...";
+    try{
+      const { key, salt, data } = await decryptVault(pendingFileObj, pw);
+      MASTER_KEY = key;
+      MASTER_SALT = salt;
+      VAULT = data;
+      enterApp();
+    }catch(err){
+      lockError.textContent = "Contraseña incorrecta o archivo dañado.";
+      btnUnlock.disabled = false;
+      btnUnlock.textContent = "Desbloquear";
+    }
+  });
 
-function renderCredentials() {
-  credList.innerHTML = '';
-  const creds = state.credentials;
-  if (!creds || creds.length === 0) {
-    credList.innerHTML = '<div class="empty-state">No hay credenciales guardadas. Haz clic en "Agregar" para empezar.</div>';
-    vaultStatus.textContent = `${creds ? 0 : '—'} credenciales`;
-    return;
+  async function createNewVault(password){
+    MASTER_SALT = crypto.getRandomValues(new Uint8Array(16));
+    MASTER_KEY = await deriveKey(password, MASTER_SALT);
+    VAULT = { emails: [], accounts: [], links: [] };
+    isNewVault = true;
+    enterApp();
   }
-  vaultStatus.textContent = `${creds.length} credenciales`;
-  creds.forEach((c, i) => {
-    const div = document.createElement('div');
-    div.className = 'cred-item';
-    div.innerHTML = `
-      <div class="info">
-        <div class="name">${esc(c.name || 'Sin nombre')}</div>
-        <div class="detail">${esc(c.username || '')}${c.url ? ' · ' + esc(c.url) : ''}</div>
-      </div>
-      <div class="actions">
-        <button class="btn btn-outline btn-sm" data-action="edit" data-index="${i}">✏️</button>
-        <button class="btn btn-danger btn-sm" data-action="delete" data-index="${i}">🗑️</button>
-      </div>
+
+  function enterApp(){
+    // Update sync indicator
+    const syncEl = document.getElementById('sync-indicator');
+    if (LOGGED_IN_USER) {
+      syncEl.textContent = `☁️ ${LOGGED_IN_USER}`;
+      syncEl.title = 'Sincronizado con el servidor';
+    } else {
+      syncEl.textContent = '💻 Local';
+      syncEl.title = 'Modo local (sin sincronización)';
+    }
+    lockScreen.style.display='none';
+    appScreen.style.display='flex';
+    renderAll();
+  }
+
+  document.getElementById('btn-lock').addEventListener('click', async ()=>{
+    if(!confirm("¿Bloquear la bóveda? Asegúrate de haber exportado los cambios recientes antes de continuar.")) return;
+    MASTER_KEY=null; MASTER_SALT=null; VAULT={emails:[],accounts:[],links:[]};
+    appScreen.style.display='none';
+    // If was logged in, go back to login screen; otherwise to lock screen
+    if (LOGGED_IN_USER) {
+      loginScreen.style.display = 'flex';
+      lockScreen.style.display = 'none';
+      loginPassword.value = '';
+    } else {
+      lockScreen.style.display='flex';
+      masterPassInput.value=''; masterPassConfirm.value='';
+      confirmRow.classList.add('hidden');
+      btnCreateNew.style.display='block'; btnCreateNew.textContent='Crear bóveda nueva';
+      btnUnlock.style.display='none';
+      fileLabel.style.display='flex';
+      lockTitle.textContent='Bóveda de credenciales';
+      lockSub.textContent='Crea una contraseña maestra nueva, o carga un archivo .vault que ya tengas.';
+      lockError.textContent='';
+    }
+  });
+
+  // ============================================================
+  // EXPORT & SYNC
+  // ============================================================
+  document.getElementById('btn-export').addEventListener('click', async ()=>{
+    const fileObj = await encryptVault();
+    // Download locally
+    const blob = new Blob([JSON.stringify(fileObj)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const ts = new Date().toISOString().slice(0,10);
+    a.href = url;
+    a.download = `${activeFileBaseName}-${ts}.vault`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showCopyFeedback("Archivo .vault descargado");
+
+    // Sync to server if logged in
+    if (LOGGED_IN_USER) {
+      const syncRes = await apiCall('PUT', '/api/vault', {
+        salt: fileObj.salt,
+        iv: fileObj.iv,
+        data: fileObj.data,
+      });
+      if (syncRes.ok) {
+        SERVER_BLOB = { salt: fileObj.salt, iv: fileObj.iv, data: fileObj.data, version: SERVER_BLOB?.version || 1 };
+        showCopyFeedback("✅ Sincronizado con el servidor");
+      } else {
+        showCopyFeedback("⚠️ No se pudo sincronizar con el servidor");
+      }
+    }
+  });
+
+  function showCopyFeedback(msg){
+    const el = document.getElementById('copy-feedback');
+    el.textContent = msg;
+    el.classList.add('show');
+    setTimeout(()=>el.classList.remove('show'), 1600);
+  }
+
+  // ============================================================
+  // TABS
+  // ============================================================
+  document.querySelectorAll('.tab').forEach(tab=>{
+    tab.addEventListener('click', ()=>{
+      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      tab.classList.add('active');
+      const target = tab.dataset.tab;
+      document.getElementById('view-list').classList.toggle('hidden', target!=='list');
+      document.getElementById('view-graph').classList.toggle('hidden', target!=='graph');
+      if(target==='graph') renderGraph();
+    });
+  });
+
+  // ============================================================
+  // RENDER: STATS
+  // ============================================================
+  function renderStats(){
+    const el = document.getElementById('stats-row');
+    const totalAccounts = VAULT.accounts.length;
+    const totalEmails = VAULT.emails.length;
+    const totalLinks = VAULT.links.length;
+    const cats = new Set(VAULT.accounts.map(a=>a.category||'otro')).size;
+    el.innerHTML = `
+      <div class="stat"><div class="num">${totalEmails}</div><div class="lbl">Correos</div></div>
+      <div class="stat"><div class="num">${totalAccounts}</div><div class="lbl">Cuentas</div></div>
+      <div class="stat"><div class="num">${totalLinks}</div><div class="lbl">Conexiones</div></div>
+      <div class="stat"><div class="num">${cats}</div><div class="lbl">Categorías</div></div>
     `;
-    // Click on item copies password
-    div.querySelector('.info').addEventListener('click', () => copyPassword(i));
-    div.querySelectorAll('button').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const idx = parseInt(btn.dataset.index);
-        if (btn.dataset.action === 'edit') openCredModal(idx);
-        if (btn.dataset.action === 'delete') deleteCred(idx);
+  }
+
+  // ============================================================
+  // RENDER: LIST VIEW
+  // ============================================================
+  function getAllNodes(){
+    const emailNodes = VAULT.emails.map(e=>({
+      id:e.id, type:'email', name:e.address, category:'correo', username:e.address,
+      password:e.password||'', url:e.url||'', notes:e.notes||''
+    }));
+    const accountNodes = VAULT.accounts.map(a=>({...a, type:'account'}));
+    return [...emailNodes, ...accountNodes];
+  }
+
+  function refreshCategoryFilter(){
+    const sel = document.getElementById('filter-category');
+    const cats = Array.from(new Set(VAULT.accounts.map(a=>a.category||'otro'))).sort();
+    const current = sel.value;
+    sel.innerHTML = '<option value="">Todas las categorías</option>' +
+      cats.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(cap(c))}</option>`).join('');
+    sel.value = current;
+  }
+
+  function renderList(){
+    refreshCategoryFilter();
+    const grid = document.getElementById('card-grid');
+    const search = document.getElementById('search-input').value.toLowerCase().trim();
+    const catFilter = document.getElementById('filter-category').value;
+
+    let items = [
+      ...VAULT.emails.map(e=>({...e, type:'email', category:'correo'})),
+      ...VAULT.accounts.map(a=>({...a, type:'account'}))
+    ];
+
+    if(catFilter) items = items.filter(i => (i.category||'otro')===catFilter);
+    if(search){
+      items = items.filter(i=>{
+        const hay = [i.name, i.address, i.username, i.url, i.notes].filter(Boolean).join(' ').toLowerCase();
+        return hay.includes(search);
+      });
+    }
+
+    if(items.length===0){
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">No hay cuentas que coincidan. Usa "+ Cuenta" arriba para agregar la primera.</div>`;
+      return;
+    }
+
+    grid.innerHTML = items.map(item=>{
+      const isEmail = item.type==='email';
+      const label = isEmail ? item.address : item.name;
+      const cat = isEmail ? 'correo' : (item.category||'otro');
+      const col = colorFor(cat);
+      const sub1 = isEmail ? 'Correo' : (item.username||'—');
+      const linkedCount = countLinksFor(item.id);
+      return `
+        <div class="acc-card" data-id="${item.id}" data-kind="${item.type}">
+          <div class="acc-card-top">
+            <div class="acc-card-name"><span class="swatch" style="background:${col}"></span>${escapeHtml(label)}</div>
+            <span class="badge">${escapeHtml(cap(cat))}</span>
+          </div>
+          <div class="acc-card-row"><span>Usuario</span><span>${escapeHtml(sub1)}</span></div>
+          <div class="acc-card-row"><span>Conexiones</span><span>${linkedCount}</span></div>
+        </div>`;
+    }).join('');
+
+    grid.querySelectorAll('.acc-card').forEach(card=>{
+      card.addEventListener('click', ()=>{
+        openDetailModal(card.dataset.id, card.dataset.kind);
       });
     });
-    credList.appendChild(div);
-  });
-}
-
-function esc(s) {
-  if (!s) return '';
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}
-
-async function copyPassword(index) {
-  const cred = state.credentials[index];
-  if (!cred || !cred.password) return;
-  try {
-    await navigator.clipboard.writeText(cred.password);
-    vaultStatus.textContent = '🔑 Contraseña copiada al portapapeles';
-    setTimeout(() => {
-      vaultStatus.textContent = `${state.credentials.length} credenciales`;
-    }, 2000);
-  } catch {
-    vaultStatus.textContent = 'No se pudo copiar';
   }
-}
 
-function deleteCred(index) {
-  if (!confirm(`¿Eliminar "${state.credentials[index].name || 'sin nombre'}"?`)) return;
-  state.credentials.splice(index, 1);
-  saveVaultToServer();
-  renderCredentials();
-}
-
-// ==================== CREDENTIAL MODAL ====================
-function openCredModal(index) {
-  const editing = index !== undefined && index >= 0;
-  state.editingIndex = editing ? index : -1;
-  modalCredTitle.textContent = editing ? 'Editar credencial' : 'Nueva credencial';
-
-  if (editing) {
-    const c = state.credentials[index];
-    credName.value = c.name || '';
-    credUsername.value = c.username || '';
-    credPassword.value = c.password || '';
-    credUrl.value = c.url || '';
-  } else {
-    credName.value = '';
-    credUsername.value = '';
-    credPassword.value = '';
-    credUrl.value = '';
-    // Generate random password
-    credPassword.value = generatePassword();
+  function countLinksFor(id){
+    return VAULT.links.filter(l=>l.from===id||l.to===id).length;
   }
-  clearError(credError);
-  modalCred.classList.remove('hidden');
-  credName.focus();
-}
 
-function closeCredModal() {
-  modalCred.classList.add('hidden');
-}
+  document.getElementById('search-input').addEventListener('input', renderList);
+  document.getElementById('filter-category').addEventListener('change', renderList);
 
-formCred.addEventListener('submit', (e) => {
-  e.preventDefault();
-  clearError(credError);
-  const name = credName.value.trim();
-  if (!name) {
-    showError(credError, 'El nombre es obligatorio');
-    return;
+  function cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
+  function escapeHtml(s){
+    return String(s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
-  const entry = {
-    name,
-    username: credUsername.value.trim(),
-    password: credPassword.value,
-    url: credUrl.value.trim(),
-  };
 
-  if (state.editingIndex >= 0) {
-    state.credentials[state.editingIndex] = entry;
-  } else {
-    state.credentials.push(entry);
+  function renderAll(){
+    renderStats();
+    renderList();
   }
-  closeCredModal();
-  saveVaultToServer();
-  renderCredentials();
-});
 
-btnCredCancel.addEventListener('click', closeCredModal);
-modalCred.addEventListener('click', (e) => {
-  if (e.target === modalCred) closeCredModal();
-});
+  // ============================================================
+  // MODAL: ADD ACCOUNT / EMAIL
+  // ============================================================
+  document.getElementById('btn-add-account').addEventListener('click', ()=>openAddModal());
 
-function generatePassword(len = 20) {
-  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+';
-  let pwd = '';
-  const arr = crypto.getRandomValues(new Uint8Array(len));
-  for (let i = 0; i < len; i++) {
-    pwd += chars[arr[i] % chars.length];
-  }
-  return pwd;
-}
+  function openAddModal(){
+    const overlay = document.createElement('div');
+    overlay.className='modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal">
+        <h2>Agregar correo o cuenta</h2>
+        <div class="field">
+          <label>Tipo</label>
+          <select id="m-type">
+            <option value="account">Cuenta / servicio (Render, Neon, Telegram...)</option>
+            <option value="email">Correo (hub que agrupa varias cuentas)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label id="m-name-label">Nombre del servicio</label>
+          <input id="m-name" placeholder="Ej: Render, Neon, Telegram, BCP">
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Usuario / correo de acceso</label>
+            <input id="m-username" placeholder="usuario@dominio.com">
+          </div>
+          <div class="field">
+            <label>Categoría</label>
+            <select id="m-category">
+              <option value="hosting">Hosting</option>
+              <option value="base de datos">Base de datos</option>
+              <option value="social">Social</option>
+              <option value="mensajería">Mensajería</option>
+              <option value="ia">IA</option>
+              <option value="banco">Banco</option>
+              <option value="monitoreo">Monitoreo</option>
+              <option value="otro">Otro</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Contraseña</label>
+          <div class="pw-row">
+            <input id="m-password" type="password">
+            <button type="button" class="pw-toggle" data-target="m-password">👁</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>URL de acceso (opcional)</label>
+          <input id="m-url" placeholder="https://dashboard.render.com">
+        </div>
+        <div class="field" id="m-owner-field">
+          <label>Correo dueño (opcional)</label>
+          <select id="m-owner"><option value="">— Ninguno —</option></select>
+        </div>
+        <div class="field">
+          <label>Notas (opcional)</label>
+          <textarea id="m-notes" placeholder="2FA, recovery codes, etc."></textarea>
+        </div>
+        <div class="modal-actions">
+          <button class="btn" id="m-cancel">Cancelar</button>
+          <button class="btn btn-primary" id="m-save">Guardar</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
 
-btnAdd.addEventListener('click', () => openCredModal());
+    const ownerSelect = overlay.querySelector('#m-owner');
+    VAULT.emails.forEach(e=> ownerSelect.innerHTML += `<option value="${e.id}">${escapeHtml(e.address)}</option>`);
 
-// ==================== SAVE / SYNC ====================
-async function saveVaultToServer() {
-  try {
-    const json = JSON.stringify(state.credentials);
-    const encrypted = await encrypt(json, state.masterPassword);
-    state.salt = encrypted.salt;
-    state.iv = encrypted.iv;
-    state.data = encrypted.data;
-    if (state.version) state.version++;
+    const typeSelect = overlay.querySelector('#m-type');
+    const nameLabel = overlay.querySelector('#m-name-label');
+    const ownerField = overlay.querySelector('#m-owner-field');
+    const categoryField = overlay.querySelector('#m-category').closest('.field');
 
-    const { ok } = await api('PUT', '/api/vault', {
-      salt: encrypted.salt,
-      iv: encrypted.iv,
-      data: encrypted.data,
-    });
-    if (!ok) {
-      vaultStatus.textContent = '⚠️ Error al guardar en el servidor';
+    function syncType(){
+      if(typeSelect.value==='email'){
+        nameLabel.textContent = 'Dirección de correo';
+        overlay.querySelector('#m-name').placeholder = 'nombre@gmail.com';
+        ownerField.style.display='none';
+        categoryField.style.display='none';
+      }else{
+        nameLabel.textContent = 'Nombre del servicio';
+        overlay.querySelector('#m-name').placeholder = 'Ej: Render, Neon, Telegram, BCP';
+        ownerField.style.display='block';
+        categoryField.style.display='block';
+      }
     }
-  } catch (err) {
-    vaultStatus.textContent = '⚠️ Error al cifrar';
+    typeSelect.addEventListener('change', syncType);
+
+    overlay.querySelectorAll('.pw-toggle').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const inp = overlay.querySelector('#'+btn.dataset.target);
+        inp.type = inp.type==='password' ? 'text' : 'password';
+      });
+    });
+
+    overlay.querySelector('#m-cancel').addEventListener('click', ()=>overlay.remove());
+    overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.remove(); });
+
+    overlay.querySelector('#m-save').addEventListener('click', ()=>{
+      const name = overlay.querySelector('#m-name').value.trim();
+      if(!name){ alert('El nombre no puede estar vacío.'); return; }
+      const username = overlay.querySelector('#m-username').value.trim();
+      const password = overlay.querySelector('#m-password').value;
+      const url = overlay.querySelector('#m-url').value.trim();
+      const notes = overlay.querySelector('#m-notes').value.trim();
+
+      if(typeSelect.value==='email'){
+        VAULT.emails.push({ id:uid(), address:name, password, url, notes });
+      } else {
+        const category = overlay.querySelector('#m-category').value;
+        const ownerId = ownerSelect.value;
+        const newAcc = { id:uid(), name, username, password, url, category, notes };
+        VAULT.accounts.push(newAcc);
+        if(ownerId){
+          VAULT.links.push({ id:uid(), from:ownerId, to:newAcc.id, type:'owner', label:'' });
+        }
+      }
+      overlay.remove();
+      renderAll();
+    });
   }
-}
 
-// ==================== EXPORT / IMPORT ====================
-btnExport.addEventListener('click', async () => {
-  if (!state.credentials || state.credentials.length === 0) {
-    vaultStatus.textContent = 'No hay credenciales para exportar';
-    return;
+  // ============================================================
+  // MODAL: DETAIL / EDIT + RELATIONS
+  // ============================================================
+  function findNodeById(id){
+    const e = VAULT.emails.find(x=>x.id===id);
+    if(e) return {...e, type:'email', name:e.address, category:'correo'};
+    const a = VAULT.accounts.find(x=>x.id===id);
+    if(a) return {...a, type:'account'};
+    return null;
   }
-  // Also save to server first
-  await saveVaultToServer();
 
-  const blobData = {
-    salt: state.salt,
-    iv: state.iv,
-    data: state.data,
-    version: state.version,
-    exportedAt: new Date().toISOString(),
-  };
-  const blob = new Blob([JSON.stringify(blobData, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `boveda-${new Date().toISOString().slice(0, 10)}${VAULT_FILE_EXT}`;
-  a.click();
-  URL.revokeObjectURL(url);
-  vaultStatus.textContent = '✅ Exportado y sincronizado con el servidor';
-  setTimeout(() => renderCredentials(), 2000);
-});
+  function openDetailModal(id, kind){
+    const node = findNodeById(id);
+    if(!node) return;
+    const overlay = document.createElement('div');
+    overlay.className='modal-overlay';
 
-btnImport.addEventListener('click', () => fileInput.click());
+    const relatedLinks = VAULT.links.filter(l=>l.from===id||l.to===id);
+    const relHtml = relatedLinks.map(l=>{
+      const otherId = l.from===id ? l.to : l.from;
+      const other = findNodeById(otherId);
+      const dirLabel = l.from===id ? '→' : '←';
+      const otherName = other ? (other.type==='email'?other.address:other.name) : '(eliminado)';
+      const typeLabel = l.type==='owner' ? 'dueño de' : (l.label || 'vinculado');
+      return `<div class="rel-item">
+        <span>${dirLabel} ${escapeHtml(otherName)} <span style="color:var(--text-muted)">· ${escapeHtml(typeLabel)}</span></span>
+        <button class="x" data-link-id="${l.id}" title="Quitar conexión">✕</button>
+      </div>`;
+    }).join('') || `<div style="font-size:12.5px;color:var(--text-muted);">Sin conexiones aún.</div>`;
 
-fileInput.addEventListener('change', async () => {
-  const file = fileInput.files[0];
-  if (!file) return;
-  try {
-    const text = await file.text();
-    const blobData = JSON.parse(text);
-    if (!blobData.salt || !blobData.iv || !blobData.data) {
-      vaultStatus.textContent = '⚠️ Archivo inválido';
+    const otherNodes = getAllNodes().filter(n=>n.id!==id);
+
+    overlay.innerHTML = `
+      <div class="modal">
+        <h2>${escapeHtml(node.type==='email'?node.address:node.name)}</h2>
+
+        ${node.type==='account' ? `
+        <div class="field">
+          <label>Nombre del servicio</label>
+          <input id="d-name" value="${escapeHtml(node.name)}">
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Usuario</label>
+            <input id="d-username" value="${escapeHtml(node.username||'')}">
+          </div>
+          <div class="field">
+            <label>Categoría</label>
+            <select id="d-category">
+              ${Object.keys(CATEGORY_COLORS).filter(c=>c!=='correo').map(c=>
+                `<option value="${c}" ${node.category===c?'selected':''}>${cap(c)}</option>`).join('')}
+            </select>
+          </div>
+        </div>` : `
+        <div class="field">
+          <label>Dirección</label>
+          <input id="d-name" value="${escapeHtml(node.address)}">
+        </div>`}
+
+        <div class="field">
+          <label>Contraseña</label>
+          <div class="pw-row">
+            <input id="d-password" type="password" value="${escapeHtml(node.password||'')}">
+            <button type="button" class="pw-toggle" data-target="d-password">👁</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>URL de acceso</label>
+          <input id="d-url" value="${escapeHtml(node.url||'')}">
+        </div>
+        <div class="field">
+          <label>Notas</label>
+          <textarea id="d-notes">${escapeHtml(node.notes||'')}</textarea>
+        </div>
+
+        <div class="field">
+          <label>Conexiones con otras cuentas</label>
+          <div class="rel-list" id="rel-list">${relHtml}</div>
+          <div class="add-rel-row">
+            <select id="rel-target">
+              <option value="">Vincular con...</option>
+              ${otherNodes.map(n=>`<option value="${n.id}">${escapeHtml(n.type==='email'?n.address:n.name)}</option>`).join('')}
+            </select>
+            <input id="rel-label" placeholder="Etiqueta (ej: mismo teléfono)">
+            <button class="btn btn-sm" id="rel-add">Vincular</button>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn btn-danger modal-actions-left" id="d-delete">Eliminar</button>
+          <button class="btn" id="d-cancel">Cerrar</button>
+          <button class="btn btn-primary" id="d-save">Guardar</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    overlay.querySelectorAll('.pw-toggle').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const inp = overlay.querySelector('#'+btn.dataset.target);
+        inp.type = inp.type==='password' ? 'text' : 'password';
+      });
+    });
+
+    overlay.querySelector('#d-cancel').addEventListener('click', ()=>overlay.remove());
+    overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.remove(); });
+
+    overlay.querySelector('#d-delete').addEventListener('click', ()=>{
+      if(!confirm('¿Eliminar este registro y todas sus conexiones? Esta acción no se puede deshacer.')) return;
+      VAULT.emails = VAULT.emails.filter(x=>x.id!==id);
+      VAULT.accounts = VAULT.accounts.filter(x=>x.id!==id);
+      VAULT.links = VAULT.links.filter(l=>l.from!==id && l.to!==id);
+      overlay.remove();
+      renderAll();
+    });
+
+    overlay.querySelector('#d-save').addEventListener('click', ()=>{
+      const newName = overlay.querySelector('#d-name').value.trim();
+      if(!newName){ alert('El nombre no puede estar vacío.'); return; }
+      const password = overlay.querySelector('#d-password').value;
+      const url = overlay.querySelector('#d-url').value.trim();
+      const notes = overlay.querySelector('#d-notes').value.trim();
+
+      if(node.type==='account'){
+        const acc = VAULT.accounts.find(x=>x.id===id);
+        acc.name = newName;
+        acc.username = overlay.querySelector('#d-username').value.trim();
+        acc.category = overlay.querySelector('#d-category').value;
+        acc.password = password; acc.url = url; acc.notes = notes;
+      } else {
+        const em = VAULT.emails.find(x=>x.id===id);
+        em.address = newName;
+        em.password = password; em.url = url; em.notes = notes;
+      }
+      overlay.remove();
+      renderAll();
+    });
+
+    overlay.querySelector('#rel-add').addEventListener('click', ()=>{
+      const targetId = overlay.querySelector('#rel-target').value;
+      if(!targetId){ return; }
+      const label = overlay.querySelector('#rel-label').value.trim();
+      VAULT.links.push({ id:uid(), from:id, to:targetId, type:'cross', label: label || 'vinculado' });
+      overlay.remove();
+      renderAll();
+      openDetailModal(id, kind);
+    });
+
+    overlay.querySelectorAll('[data-link-id]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        VAULT.links = VAULT.links.filter(l=>l.id!==btn.dataset.linkId);
+        overlay.remove();
+        renderAll();
+        openDetailModal(id, kind);
+      });
+    });
+  }
+
+  // ============================================================
+  // GRAPH VIEW (D3 force layout)
+  // ============================================================
+  let simulation = null;
+  let svgZoomG = null;
+  let currentZoom = d3.zoomIdentity;
+
+  function renderGraph(){
+    const svg = d3.select('#graph-svg');
+    svg.selectAll('*').remove();
+    const wrap = document.getElementById('graph-wrap');
+    const width = wrap.clientWidth;
+    const height = wrap.clientHeight;
+    svg.attr('viewBox', `0 0 ${width} ${height}`);
+
+    const defs = svg.append('defs');
+    defs.append('marker')
+      .attr('id','arrowhead')
+      .attr('viewBox','0 0 10 10')
+      .attr('refX',8).attr('refY',5)
+      .attr('markerWidth',6).attr('markerHeight',6)
+      .attr('orient','auto-start-reverse')
+      .append('path')
+      .attr('d','M2 1L8 5L2 9')
+      .attr('fill','none')
+      .attr('stroke','#5a6172')
+      .attr('stroke-width',1.5);
+
+    const g = svg.append('g');
+    svgZoomG = g;
+
+    const zoom = d3.zoom()
+      .scaleExtent([0.3, 3])
+      .on('zoom', (event)=>{ currentZoom = event.transform; g.attr('transform', event.transform); });
+    svg.call(zoom);
+    svg.call(zoom.transform, currentZoom);
+
+    document.getElementById('zoom-in').onclick = ()=> svg.transition().duration(200).call(zoom.scaleBy, 1.3);
+    document.getElementById('zoom-out').onclick = ()=> svg.transition().duration(200).call(zoom.scaleBy, 0.75);
+    document.getElementById('zoom-reset').onclick = ()=>{
+      currentZoom = d3.zoomIdentity;
+      svg.transition().duration(250).call(zoom.transform, currentZoom);
+    };
+
+    const nodesData = getAllNodes().map(n=>({...n}));
+    const linksData = VAULT.links
+      .filter(l => nodesData.find(n=>n.id===l.from) && nodesData.find(n=>n.id===l.to))
+      .map(l=>({...l}));
+
+    if(nodesData.length===0){
+      svg.append('text')
+        .attr('x', width/2).attr('y', height/2)
+        .attr('text-anchor','middle')
+        .attr('fill','#6b7286')
+        .attr('font-size','13px')
+        .text('Agrega cuentas para ver el mapa de relaciones.');
+      renderLegend([]);
       return;
     }
-    state.salt = blobData.salt;
-    state.iv = blobData.iv;
-    state.data = blobData.data;
-    state.version = blobData.version || 1;
-    fileInput.value = '';
-    // Now ask for master password to decrypt
-    showMasterScreen('unlock');
-  } catch {
-    vaultStatus.textContent = '⚠️ No se pudo leer el archivo';
+
+    const usedCats = Array.from(new Set(nodesData.map(n=>n.category||'otro')));
+    renderLegend(usedCats);
+
+    simulation = d3.forceSimulation(nodesData)
+      .force('link', d3.forceLink(linksData).id(d=>d.id).distance(d=> d.type==='owner'?90:130).strength(0.5))
+      .force('charge', d3.forceManyBody().strength(-260))
+      .force('center', d3.forceCenter(width/2, height/2))
+      .force('collide', d3.forceCollide(34));
+
+    const link = g.append('g').selectAll('line')
+      .data(linksData).enter().append('line')
+      .attr('class', d=> 'glink' + (d.type==='cross' ? ' cross':''))
+      .attr('marker-end','url(#arrowhead)');
+
+    const linkLabel = g.append('g').selectAll('text')
+      .data(linksData.filter(d=>d.label && d.type==='cross')).enter().append('text')
+      .attr('class','glink-label')
+      .text(d=>d.label);
+
+    const node = g.append('g').selectAll('g')
+      .data(nodesData).enter().append('g')
+      .attr('class','gnode')
+      .call(d3.drag()
+        .on('start', dragstarted)
+        .on('drag', dragged)
+        .on('end', dragended))
+      .on('click', (event, d)=>{ openDetailModal(d.id, d.type); });
+
+    node.append('circle')
+      .attr('r', d=> d.type==='email' ? 20 : 15)
+      .attr('fill', d=> colorFor(d.category) + (d.type==='email' ? '' : ''))
+      .attr('fill-opacity', d=> d.type==='email' ? 0.9 : 0.85)
+      .attr('stroke', d=> colorFor(d.category))
+      .attr('stroke-width', d=> d.type==='email' ? 2 : 1.5);
+
+    node.append('text')
+      .attr('text-anchor','middle')
+      .attr('dy', d=> d.type==='email' ? 32 : 26)
+      .text(d=> truncateLabel(d.type==='email' ? d.address : d.name));
+
+    simulation.on('tick', ()=>{
+      link
+        .attr('x1', d=>d.source.x).attr('y1', d=>d.source.y)
+        .attr('x2', d=>d.target.x).attr('y2', d=>d.target.y);
+      linkLabel
+        .attr('x', d=> (d.source.x+d.target.x)/2)
+        .attr('y', d=> (d.source.y+d.target.y)/2 - 4);
+      node.attr('transform', d=>`translate(${d.x},${d.y})`);
+    });
+
+    function dragstarted(event, d){
+      if(!event.active) simulation.alphaTarget(0.25).restart();
+      d.fx = d.x; d.fy = d.y;
+    }
+    function dragged(event, d){ d.fx = event.x; d.fy = event.y; }
+    function dragended(event, d){
+      if(!event.active) simulation.alphaTarget(0);
+      d.fx = null; d.fy = null;
+    }
   }
-});
 
-// ==================== LOGOUT ====================
-btnLogout.addEventListener('click', async () => {
-  await api('POST', '/api/auth/logout');
-  state = {
-    username: null,
-    masterPassword: null,
-    salt: null,
-    iv: null,
-    data: null,
-    version: null,
-    credentials: [],
-    editingIndex: -1,
-  };
-  inpLoginUser.value = '';
-  inpLoginPass.value = '';
-  clearError(loginError);
-  showScreen(scrLogin);
-});
+  function truncateLabel(s){
+    s = s||'';
+    return s.length>16 ? s.slice(0,15)+'…' : s;
+  }
 
-// ==================== INIT ====================
-showScreen(scrLogin);
-</script>
+  function renderLegend(cats){
+    const el = document.getElementById('graph-legend');
+    if(cats.length===0){ el.innerHTML=''; return; }
+    el.innerHTML = cats.map(c=>`
+      <div class="legend-item"><span class="legend-dot" style="background:${colorFor(c)}"></span>${escapeHtml(cap(c))}</div>
+    `).join('');
+  }
+
+  window.addEventListener('resize', ()=>{
+    if(!document.getElementById('view-graph').classList.contains('hidden')) renderGraph();
+  });
+  </script>
 </body>
 </html>

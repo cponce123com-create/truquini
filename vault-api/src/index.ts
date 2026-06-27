@@ -53,6 +53,29 @@ app.use((req, _res, next) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/vault", vaultRoutes);
 
+// Root — simple info so it doesn't show "Cannot GET /"
+app.get("/", (_req, res) => {
+  res.json({
+    name: "vault-api",
+    version: "1.0.0",
+    description:
+      "Backend para Bóveda de Credenciales — solo persiste blob cifrado opaco",
+    endpoints: {
+      health: "GET /health",
+      auth: {
+        register: "POST /api/auth/register",
+        login: "POST /api/auth/login",
+        logout: "POST /api/auth/logout",
+        me: "GET /api/auth/me",
+      },
+      vault: {
+        get: "GET /api/vault",
+        put: "PUT /api/vault",
+      },
+    },
+  });
+});
+
 // Health check
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });

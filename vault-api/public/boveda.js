@@ -393,6 +393,30 @@ function showCopyFeedback(msg){
 }
 
 // ============================================================
+// AUTOSAVE: persist every change (add/edit/delete/link) to the
+// server immediately, instead of only on "Exportar .vault".
+// ============================================================
+async function autosave(){
+  if(!LOGGED_IN_USER) return; // local-only mode: nothing to sync
+  try{
+    const fileObj = await encryptVault();
+    const syncRes = await apiCall('PUT', '/api/vault', {
+      salt: fileObj.salt,
+      iv: fileObj.iv,
+      data: fileObj.data,
+    });
+    if(syncRes.ok){
+      SERVER_BLOB = { salt: fileObj.salt, iv: fileObj.iv, data: fileObj.data, version: SERVER_BLOB?.version || 1 };
+      showCopyFeedback("✅ Guardado");
+    } else {
+      showCopyFeedback("⚠️ No se pudo guardar en el servidor");
+    }
+  }catch(err){
+    showCopyFeedback("⚠️ Error al guardar");
+  }
+}
+
+// ============================================================
 // TABS
 // ============================================================
 document.querySelectorAll('.tab').forEach(tab=>{
@@ -632,6 +656,7 @@ function openAddModal(){
     }
     overlay.remove();
     renderAll();
+    autosave();
   });
 }
 
@@ -749,6 +774,7 @@ function openDetailModal(id, kind){
     VAULT.links = VAULT.links.filter(l=>l.from!==id && l.to!==id);
     overlay.remove();
     renderAll();
+    autosave();
   });
 
   overlay.querySelector('#d-save').addEventListener('click', ()=>{
@@ -771,15 +797,21 @@ function openDetailModal(id, kind){
     }
     overlay.remove();
     renderAll();
+    autosave();
   });
 
   overlay.querySelector('#rel-add').addEventListener('click', ()=>{
     const targetId = overlay.querySelector('#rel-target').value;
-    if(!targetId){ return; }
+    if(!targetId){
+      overlay.querySelector('#rel-target').focus();
+      showCopyFeedback("⚠️ Elige una cuenta para vincular");
+      return;
+    }
     const label = overlay.querySelector('#rel-label').value.trim();
     VAULT.links.push({ id:uid(), from:id, to:targetId, type:'cross', label: label || 'vinculado' });
     overlay.remove();
     renderAll();
+    autosave();
     openDetailModal(id, kind);
   });
 
@@ -788,6 +820,7 @@ function openDetailModal(id, kind){
       VAULT.links = VAULT.links.filter(l=>l.id!==btn.dataset.linkId);
       overlay.remove();
       renderAll();
+      autosave();
       openDetailModal(id, kind);
     });
   });

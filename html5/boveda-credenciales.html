@@ -128,9 +128,13 @@
     border:1px dashed var(--border);border-radius:var(--radius-lg);
   }
 
-  /* ---------- Graph view ---------- */
+  /* ---------- Graph view (estilo red neuronal) ---------- */
   #graph-wrap{
-    background:var(--panel);border:1px solid var(--border);border-radius:var(--radius-lg);
+    background:
+      radial-gradient(circle at 30% 25%, rgba(91,140,255,.07), transparent 55%),
+      radial-gradient(circle at 75% 70%, rgba(62,207,142,.05), transparent 50%),
+      var(--panel);
+    border:1px solid var(--border);border-radius:var(--radius-lg);
     position:relative;overflow:hidden;height:62vh;min-height:420px;
   }
   #graph-svg{width:100%;height:100%;display:block;}
@@ -153,13 +157,38 @@
   .icon-btn:hover{color:var(--text);border-color:var(--border-strong);}
 
   .gnode{cursor:pointer;}
-  .gnode circle{transition:r .12s,stroke-width .12s;}
-  .gnode:hover circle{stroke-width:2.5;}
-  .gnode text{font-size:11px;fill:var(--text);pointer-events:none;font-family:var(--font);}
+  .gnode circle.core{transition:stroke-width .15s ease, opacity .25s ease, fill-opacity .2s ease;}
+  .gnode circle.halo{
+    transform-box:fill-box;transform-origin:center;pointer-events:none;
+    transition:opacity .25s ease;
+    animation:neuro-pulse 2.6s ease-in-out infinite;
+  }
+  .gnode:hover circle.core{stroke-width:2.8;}
+  .gnode.highlighted circle.core{stroke-width:2.8;}
+  .gnode.highlighted circle.halo{opacity:.65;animation-duration:1.1s;}
+  .gnode.dimmed{opacity:.15;}
+  .gnode text{font-size:11px;fill:var(--text);pointer-events:none;font-family:var(--font);transition:opacity .2s ease;}
   .gnode .sub{font-size:9px;fill:var(--text-muted);}
-  .glink{stroke:var(--border-strong);stroke-width:1.4;}
-  .glink.cross{stroke:var(--warning);stroke-dasharray:4 3;}
-  .glink-label{font-size:9.5px;fill:var(--text-muted);pointer-events:none;}
+
+  @keyframes neuro-pulse{
+    0%,100%{ opacity:.22; transform:scale(1); }
+    50%{ opacity:.5; transform:scale(1.22); }
+  }
+
+  .glink{
+    stroke:var(--border-strong);stroke-width:1.3;stroke-dasharray:1.5 7;stroke-linecap:round;
+    transition:opacity .2s ease, stroke .2s ease, stroke-width .2s ease;
+    animation:neuro-flow 1.4s linear infinite;
+  }
+  .glink.cross{stroke:var(--warning);stroke-dasharray:4 4;animation-duration:.9s;}
+  .glink.highlighted{stroke:var(--accent);stroke-width:2.2;opacity:1;animation-duration:.45s;}
+  .glink.highlighted.cross{stroke:var(--warning);}
+  .glink.dimmed{opacity:.06;}
+  .glink-label{font-size:9.5px;fill:var(--text-muted);pointer-events:none;transition:opacity .2s ease;}
+  .glink-label.dimmed{opacity:.06;}
+  .glink-label.highlighted{fill:var(--text);}
+
+  @keyframes neuro-flow{ to{ stroke-dashoffset:-17; } }
 
   /* ---------- Modal ---------- */
   .modal-overlay{
@@ -320,7 +349,7 @@
             <button class="icon-btn" id="zoom-out" title="Alejar">−</button>
             <button class="icon-btn" id="zoom-reset" title="Restablecer">⟳</button>
           </div>
-          <div class="graph-hint">Arrastra los nodos · clic para ver detalle · rueda para zoom</div>
+          <div class="graph-hint">Pasa el cursor para ver dependencias · arrastra los nodos · clic para ver detalle · rueda para zoom</div>
         </div>
       </div>
     </div>

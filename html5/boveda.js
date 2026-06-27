@@ -872,6 +872,8 @@ let simulation = null;
 let svgZoomG = null;
 let currentZoom = d3.zoomIdentity;
 
+function slugCat(c){ return (c||'otro').toLowerCase().replace(/[^a-z0-9]+/g,'-'); }
+
 function renderGraph(){
   const svg = d3.select('#graph-svg');
   svg.selectAll('*').remove();
@@ -910,9 +912,11 @@ function renderGraph(){
   };
 
   const nodesData = getAllNodes().map(n=>({...n}));
+  // d3.forceLink necesita las claves "source"/"target"; nuestros links usan "from"/"to",
+  // así que las espejamos acá (sin esto, el grafo crasheaba apenas existía una relación).
   const linksData = VAULT.links
     .filter(l => nodesData.find(n=>n.id===l.from) && nodesData.find(n=>n.id===l.to))
-    .map(l=>({...l}));
+    .map(l=>({...l, source:l.from, target:l.to}));
 
   if(nodesData.length===0){
     svg.append('text')
@@ -927,6 +931,23 @@ function renderGraph(){
 
   const usedCats = Array.from(new Set(nodesData.map(n=>n.category||'otro')));
   renderLegend(usedCats);
+
+  // Filtros de "brillo neuronal" — uno por color de categoría usada
+  usedCats.forEach(cat=>{
+    defs.append('filter')
+      .attr('id', `glow-${slugCat(cat)}`)
+      .attr('x','-150%').attr('y','-150%').attr('width','400%').attr('height','400%')
+      .append('feGaussianBlur')
+      .attr('in','SourceGraphic')
+      .attr('stdDeviation', 4.2);
+  });
+
+  // Mapa de adyacencia directa para resaltar dependencias al pasar el cursor
+  const neighborMap = new Map(nodesData.map(n=>[n.id, new Set([n.id])]));
+  linksData.forEach(l=>{
+    neighborMap.get(l.from)?.add(l.to);
+    neighborMap.get(l.to)?.add(l.from);
+  });
 
   simulation = d3.forceSimulation(nodesData)
     .force('link', d3.forceLink(linksData).id(d=>d.id).distance(d=> d.type==='owner'?90:130).strength(0.5))
@@ -947,16 +968,28 @@ function renderGraph(){
   const node = g.append('g').selectAll('g')
     .data(nodesData).enter().append('g')
     .attr('class','gnode')
+    .style('animation-delay', (d,i)=> ((i*0.37) % 2.6).toFixed(2)+'s')
     .call(d3.drag()
       .on('start', dragstarted)
       .on('drag', dragged)
       .on('end', dragended))
-    .on('click', (event, d)=>{ openDetailModal(d.id, d.type); });
+    .on('click', (event, d)=>{ openDetailModal(d.id, d.type); })
+    .on('mouseenter', (event, d)=> highlightNode(d.id))
+    .on('mouseleave', ()=> clearHighlight());
+
+  // Halo brillante pulsante (la "neurona") detrás del círculo principal
+  node.append('circle')
+    .attr('class','halo')
+    .attr('r', d=> (d.type==='email' ? 20 : 15) + 9)
+    .attr('fill', d=> colorFor(d.category))
+    .attr('filter', d=> `url(#glow-${slugCat(d.category)})`)
+    .style('animation-delay', (d,i)=> ((i*0.53) % 2.6).toFixed(2)+'s');
 
   node.append('circle')
+    .attr('class','core')
     .attr('r', d=> d.type==='email' ? 20 : 15)
-    .attr('fill', d=> colorFor(d.category) + (d.type==='email' ? '' : ''))
-    .attr('fill-opacity', d=> d.type==='email' ? 0.9 : 0.85)
+    .attr('fill', d=> colorFor(d.category))
+    .attr('fill-opacity', d=> d.type==='email' ? 0.92 : 0.86)
     .attr('stroke', d=> colorFor(d.category))
     .attr('stroke-width', d=> d.type==='email' ? 2 : 1.5);
 
@@ -974,6 +1007,19 @@ function renderGraph(){
       .attr('y', d=> (d.source.y+d.target.y)/2 - 4);
     node.attr('transform', d=>`translate(${d.x},${d.y})`);
   });
+
+  // Resalta un nodo y sus dependencias directas; atenúa el resto del mapa
+  function highlightNode(id){
+    const related = neighborMap.get(id) || new Set([id]);
+    node.classed('dimmed', d=> !related.has(d.id)).classed('highlighted', d=> related.has(d.id));
+    link.classed('dimmed', d=> !(d.from===id || d.to===id)).classed('highlighted', d=> (d.from===id || d.to===id));
+    linkLabel.classed('dimmed', d=> !(d.from===id || d.to===id)).classed('highlighted', d=> (d.from===id || d.to===id));
+  }
+  function clearHighlight(){
+    node.classed('dimmed', false).classed('highlighted', false);
+    link.classed('dimmed', false).classed('highlighted', false);
+    linkLabel.classed('dimmed', false).classed('highlighted', false);
+  }
 
   function dragstarted(event, d){
     if(!event.active) simulation.alphaTarget(0.25).restart();

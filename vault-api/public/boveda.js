@@ -219,17 +219,6 @@ loginPassword.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') btnLogin.click();
 });
 
-// Also submit on Enter in master password field
-masterPassInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
-    if (btnUnlock.style.display !== 'none') {
-      btnUnlock.click();
-    } else if (btnCreateNew.style.display !== 'none') {
-      btnCreateNew.click();
-    }
-  }
-});
-
 // ============================================================
 // LOCK SCREEN LOGIC
 // ============================================================
@@ -247,6 +236,17 @@ const fileInput = document.getElementById('file-input');
 const fileLabel = document.getElementById('file-label');
 
 let pendingFileObj = null;
+
+// Also submit on Enter in master password field
+masterPassInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    if (btnUnlock.style.display !== 'none') {
+      btnUnlock.click();
+    } else if (btnCreateNew.style.display !== 'none') {
+      btnCreateNew.click();
+    }
+  }
+});
 
 fileInput.addEventListener('change', (e)=>{
   const file = e.target.files[0];

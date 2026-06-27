@@ -95,7 +95,6 @@ router.put("/", async (req: Request, res: Response): Promise<void> => {
           iv,
           data,
           version: existing[0].version + 1,
-          updatedAt: now,
         })
         .where(eq(vaultBlobs.userId, userId));
     } else {
@@ -106,11 +105,10 @@ router.put("/", async (req: Request, res: Response): Promise<void> => {
         iv,
         data,
         version: 1,
-        updatedAt: now,
       });
     }
 
-    res.json({ updatedAt: now });
+    res.json({ updatedAt: new Date().toISOString() });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("Vault PUT error:", msg);

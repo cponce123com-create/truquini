@@ -153,13 +153,45 @@
   .icon-btn:hover{color:var(--text);border-color:var(--border-strong);}
 
   .gnode{cursor:pointer;}
-  .gnode circle{transition:r .12s,stroke-width .12s;}
+  .gnode circle{transition:r .12s,stroke-width .12s,opacity .15s;}
   .gnode:hover circle{stroke-width:2.5;}
-  .gnode text{font-size:11px;fill:var(--text);pointer-events:none;font-family:var(--font);}
+  .gnode text{font-size:11px;fill:var(--text);pointer-events:none;font-family:var(--font);transition:opacity .15s;}
   .gnode .sub{font-size:9px;fill:var(--text-muted);}
-  .glink{stroke:var(--border-strong);stroke-width:1.4;}
+  .glink{stroke:var(--border-strong);stroke-width:1.4;transition:opacity .15s,stroke .15s;}
   .glink.cross{stroke:var(--warning);stroke-dasharray:4 3;}
-  .glink-label{font-size:9.5px;fill:var(--text-muted);pointer-events:none;}
+  .glink-label{font-size:9.5px;fill:var(--text-muted);pointer-events:none;transition:opacity .15s;}
+
+  /* Halo: kept subtle on purpose — a soft "presence" cue, not a spotlight */
+  .gnode .halo{opacity:.28;}
+  @keyframes haloPulse{0%,100%{opacity:.18;}50%{opacity:.34;}}
+  .gnode .halo{animation:haloPulse 3.2s ease-in-out infinite;}
+  @media (prefers-reduced-motion: reduce){ .gnode .halo{animation:none;opacity:.24;} }
+
+  /* Hover focus: dim everything unrelated instead of just brightening the target */
+  .gnode.dimmed{opacity:.22;}
+  .gnode.highlighted .core{stroke-width:2.5;}
+  .glink.dimmed{opacity:.12;}
+  .glink.highlighted{stroke:var(--accent);stroke-width:2;}
+  .glink-label.dimmed{opacity:.12;}
+
+  /* ---------- Tree view (flat, sober map for fast lookup) ---------- */
+  #tree-wrap{
+    background:var(--panel);border:1px solid var(--border);border-radius:var(--radius-lg);
+    position:relative;overflow:auto;height:62vh;min-height:420px;
+  }
+  #tree-svg{display:block;transform-origin:0 0;}
+  .tree-toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;}
+  .tnode{cursor:pointer;}
+  .tnode circle{stroke-width:1.5;transition:opacity .15s;}
+  .tnode text{font-size:12px;fill:var(--text);font-family:var(--font);pointer-events:none;transition:opacity .15s,fill .15s;}
+  .tnode .tsub{font-size:10.5px;fill:var(--text-muted);}
+  .tnode.tdim circle, .tnode.tdim text{opacity:.25;}
+  .tnode.tmatch text{fill:var(--accent);font-weight:600;}
+  .tnode.thasChildren circle{stroke:var(--border-strong);}
+  .tlink{fill:none;stroke:var(--border);stroke-width:1.2;transition:opacity .15s;}
+  .tlink.tdim{opacity:.18;}
+  .troot circle{fill:var(--text-secondary);}
+  .tcaret{font-size:9px;fill:var(--text-muted);pointer-events:none;}
 
   /* ---------- Modal ---------- */
   .modal-overlay{
@@ -294,6 +326,7 @@
     <div class="tabs">
       <div class="tab active" data-tab="list">Lista</div>
       <div class="tab" data-tab="graph">Mapa de relaciones</div>
+      <div class="tab" data-tab="tree">Vista árbol</div>
     </div>
 
     <div class="main">
@@ -321,6 +354,21 @@
             <button class="icon-btn" id="zoom-reset" title="Restablecer">⟳</button>
           </div>
           <div class="graph-hint">Arrastra los nodos · clic para ver detalle · rueda para zoom</div>
+        </div>
+      </div>
+
+      <!-- TREE VIEW -->
+      <div id="view-tree" class="hidden">
+        <div class="tree-toolbar">
+          <input class="search-input" id="tree-search" placeholder="Buscar correo o cuenta para ubicarla...">
+          <button class="btn btn-sm" id="tree-expand-all">Expandir todo</button>
+          <button class="btn btn-sm" id="tree-collapse-all">Colapsar todo</button>
+          <button class="icon-btn" id="tree-zoom-in" title="Acercar">+</button>
+          <button class="icon-btn" id="tree-zoom-out" title="Alejar">−</button>
+          <button class="icon-btn" id="tree-zoom-reset" title="Restablecer">⟳</button>
+        </div>
+        <div id="tree-wrap">
+          <svg id="tree-svg"></svg>
         </div>
       </div>
     </div>

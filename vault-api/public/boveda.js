@@ -465,7 +465,9 @@ document.querySelectorAll('.tab').forEach(tab=>{
     const target = tab.dataset.tab;
     document.getElementById('view-list').classList.toggle('hidden', target!=='list');
     document.getElementById('view-graph').classList.toggle('hidden', target!=='graph');
+    document.getElementById('view-tree').classList.toggle('hidden', target!=='tree');
     if(target==='graph') renderGraph();
+    if(target==='tree') renderTree();
   });
 });
 
@@ -932,14 +934,14 @@ function renderGraph(){
   const usedCats = Array.from(new Set(nodesData.map(n=>n.category||'otro')));
   renderLegend(usedCats);
 
-  // Filtros de "brillo neuronal" — uno por color de categoría usada
+  // Filtros de "brillo neuronal" — uno por color de categoría usada (sutil, no protagonista)
   usedCats.forEach(cat=>{
     defs.append('filter')
       .attr('id', `glow-${slugCat(cat)}`)
       .attr('x','-150%').attr('y','-150%').attr('width','400%').attr('height','400%')
       .append('feGaussianBlur')
       .attr('in','SourceGraphic')
-      .attr('stdDeviation', 4.2);
+      .attr('stdDeviation', 2.6);
   });
 
   // Mapa de adyacencia directa para resaltar dependencias al pasar el cursor
@@ -949,11 +951,33 @@ function renderGraph(){
     neighborMap.get(l.to)?.add(l.from);
   });
 
+  // Clustering por correo: cada correo + sus cuentas se ancla a un punto propio
+  // del lienzo para que, con muchos correos, no se forme una sola maraña central.
+  const emailIds = nodesData.filter(n=>n.type==='email').map(n=>n.id);
+  const clusterOf = new Map();
+  emailIds.forEach((id,i)=> clusterOf.set(id, i));
+  linksData.forEach(l=>{
+    if(l.type==='owner' && clusterOf.has(l.from)) clusterOf.set(l.to, clusterOf.get(l.from));
+  });
+  const clusterCount = Math.max(emailIds.length, 1);
+  const cols = Math.ceil(Math.sqrt(clusterCount));
+  const cellW = width / Math.max(cols,1);
+  const rows = Math.ceil(clusterCount/cols);
+  const cellH = height / Math.max(rows,1);
+  const clusterCenters = emailIds.map((id,i)=>({
+    x: cellW*(i%cols) + cellW/2,
+    y: cellH*Math.floor(i/cols) + cellH/2
+  }));
+  nodesData.forEach(n=>{ n.cluster = clusterOf.get(n.id) ?? 0; });
+  const clusterStrength = clusterCount > 4 ? 0.12 : 0; // solo activa si hay varios correos
+
   simulation = d3.forceSimulation(nodesData)
-    .force('link', d3.forceLink(linksData).id(d=>d.id).distance(d=> d.type==='owner'?90:130).strength(0.5))
-    .force('charge', d3.forceManyBody().strength(-260))
+    .force('link', d3.forceLink(linksData).id(d=>d.id).distance(d=> d.type==='owner'?80:120).strength(0.5))
+    .force('charge', d3.forceManyBody().strength(-220))
     .force('center', d3.forceCenter(width/2, height/2))
-    .force('collide', d3.forceCollide(34));
+    .force('collide', d3.forceCollide(28))
+    .force('clusterX', d3.forceX(d=> clusterCenters[d.cluster]?.x ?? width/2).strength(clusterStrength))
+    .force('clusterY', d3.forceY(d=> clusterCenters[d.cluster]?.y ?? height/2).strength(clusterStrength));
 
   const link = g.append('g').selectAll('line')
     .data(linksData).enter().append('line')
@@ -977,17 +1001,17 @@ function renderGraph(){
     .on('mouseenter', (event, d)=> highlightNode(d.id))
     .on('mouseleave', ()=> clearHighlight());
 
-  // Halo brillante pulsante (la "neurona") detrás del círculo principal
+  // Halo brillante pulsante (la "neurona") detrás del círculo principal — sutil, no protagonista
   node.append('circle')
     .attr('class','halo')
-    .attr('r', d=> (d.type==='email' ? 20 : 15) + 9)
+    .attr('r', d=> (d.type==='email' ? 16 : 12) + 5)
     .attr('fill', d=> colorFor(d.category))
     .attr('filter', d=> `url(#glow-${slugCat(d.category)})`)
     .style('animation-delay', (d,i)=> ((i*0.53) % 2.6).toFixed(2)+'s');
 
   node.append('circle')
     .attr('class','core')
-    .attr('r', d=> d.type==='email' ? 20 : 15)
+    .attr('r', d=> d.type==='email' ? 16 : 12)
     .attr('fill', d=> colorFor(d.category))
     .attr('fill-opacity', d=> d.type==='email' ? 0.92 : 0.86)
     .attr('stroke', d=> colorFor(d.category))
@@ -995,7 +1019,7 @@ function renderGraph(){
 
   node.append('text')
     .attr('text-anchor','middle')
-    .attr('dy', d=> d.type==='email' ? 32 : 26)
+    .attr('dy', d=> d.type==='email' ? 28 : 23)
     .text(d=> truncateLabel(d.type==='email' ? d.address : d.name));
 
   simulation.on('tick', ()=>{
@@ -1047,4 +1071,174 @@ function renderLegend(cats){
 
 window.addEventListener('resize', ()=>{
   if(!document.getElementById('view-graph').classList.contains('hidden')) renderGraph();
+  if(!document.getElementById('view-tree').classList.contains('hidden')) renderTree();
 });
+
+// ============================================================
+// TREE VIEW (jerarquía plana y sobria: correo -> cuentas)
+// Pensada para ubicar algo rápido cuando hay muchos correos:
+// sin glow, sin física, colapsable y con buscador.
+// ============================================================
+let treeRoot = null;
+let treeScale = 1;
+const treeCollapsed = new Set(); // ids de correos colapsados
+
+function buildTreeHierarchy(){
+  const accountsByOwner = new Map();
+  const ownedAccountIds = new Set();
+  VAULT.links.filter(l=>l.type==='owner').forEach(l=>{
+    ownedAccountIds.add(l.to);
+    if(!accountsByOwner.has(l.from)) accountsByOwner.set(l.from, []);
+    accountsByOwner.get(l.from).push(l.to);
+  });
+
+  const accountNode = a => ({ id:a.id, type:'account', name:a.name, category:a.category||'otro', username:a.username, children:[] });
+
+  const emailChildren = VAULT.emails
+    .slice()
+    .sort((a,b)=> a.address.localeCompare(b.address))
+    .map(e=>{
+      const accIds = accountsByOwner.get(e.id) || [];
+      const accs = accIds
+        .map(id=> VAULT.accounts.find(a=>a.id===id))
+        .filter(Boolean)
+        .sort((a,b)=> a.name.localeCompare(b.name))
+        .map(accountNode);
+      return { id:e.id, type:'email', name:e.address, category:'correo', children: accs };
+    });
+
+  const orphanAccs = VAULT.accounts
+    .filter(a=> !ownedAccountIds.has(a.id))
+    .sort((a,b)=> a.name.localeCompare(b.name))
+    .map(accountNode);
+
+  const children = [...emailChildren];
+  if(orphanAccs.length) children.push({ id:'__sin_correo__', type:'group', name:'Sin correo asignado', children: orphanAccs });
+
+  return { id:'__root__', type:'root', name:'Bóveda', children };
+}
+
+function renderTree(){
+  const svg = d3.select('#tree-svg');
+  svg.selectAll('*').remove();
+  const wrap = document.getElementById('tree-wrap');
+  const width = wrap.clientWidth;
+
+  const data = buildTreeHierarchy();
+  if(data.children.length===0){
+    svg.attr('width', width).attr('height', 200);
+    svg.append('text').attr('x',20).attr('y',40).attr('fill','#6b7286').attr('font-size','13px')
+      .text('Agrega correos y cuentas para ver el árbol.');
+    return;
+  }
+
+  const root = d3.hierarchy(data);
+  root.each(d=>{ if(treeCollapsed.has(d.data.id) && d.children){ d._children = d.children; d.children = null; } });
+  treeRoot = root;
+
+  const dx = 30; // separación vertical entre filas
+  const dy = 200; // separación horizontal entre niveles
+  const layout = d3.tree().nodeSize([dx, dy]);
+
+  function update(){
+    layout(treeRoot);
+    let minX = Infinity, maxX = -Infinity, maxY = 0;
+    treeRoot.each(d=>{ minX=Math.min(minX,d.x); maxX=Math.max(maxX,d.x); maxY=Math.max(maxY,d.y); });
+    const height = Math.max(maxX - minX + dx*2, 200);
+    const svgWidth = Math.max(maxY + dy + 160, width);
+    svg.attr('width', svgWidth).attr('height', height);
+    svg.style('transform', `scale(${treeScale})`);
+    const offsetX = -minX + dx;
+
+    const g = svg.selectAll('g.tree-g').data([null]);
+    const gEnter = g.enter().append('g').attr('class','tree-g');
+    const gMerged = gEnter.merge(g).attr('transform', `translate(20,${offsetX})`);
+
+    const linkGen = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
+
+    const links = gMerged.selectAll('path.tlink').data(treeRoot.links(), d=> d.target.data.id);
+    links.exit().remove();
+    links.enter().append('path').attr('class','tlink').merge(links)
+      .attr('d', linkGen);
+
+    const nodes = gMerged.selectAll('g.tnode').data(treeRoot.descendants(), d=> d.data.id);
+    nodes.exit().remove();
+
+    const nodeEnter = nodes.enter().append('g').attr('class','tnode');
+    nodeEnter.append('circle');
+    nodeEnter.append('text').attr('class','tcaret');
+    nodeEnter.append('text').attr('class','tlabel');
+
+    const nodeMerged = nodeEnter.merge(nodes)
+      .attr('transform', d=>`translate(${d.y},${d.x})`)
+      .attr('class', d=> 'tnode' + (d.children||d._children ? ' thasChildren':''))
+      .style('cursor', d=> (d.data.children && d.data.children.length) ? 'pointer' : 'default')
+      .on('click', (event,d)=>{
+        const hasKids = (d.data.children && d.data.children.length>0);
+        if((d.data.type==='email' || d.data.type==='group') && hasKids){
+          if(d.children){ d._children = d.children; d.children = null; treeCollapsed.add(d.data.id); }
+          else if(d._children){ d.children = d._children; d._children = null; treeCollapsed.delete(d.data.id); }
+          update();
+        } else if(d.data.type==='account' || d.data.type==='email'){
+          openDetailModal(d.data.id, d.data.type);
+        }
+      });
+
+    nodeMerged.select('circle')
+      .attr('r', d=> d.data.type==='root' ? 0 : (d.data.type==='email' ? 6 : 4.5))
+      .attr('fill', d=> d.data.type==='group' ? '#6b7286' : colorFor(d.data.category))
+      .attr('stroke', 'var(--bg)');
+
+    nodeMerged.select('.tcaret')
+      .attr('x', d=> (d.data.type==='email'||d.data.type==='group') ? -14 : 0)
+      .attr('dy', 4)
+      .text(d=>{
+        if(!(d.data.type==='email'||d.data.type==='group')) return '';
+        const has = (d.data.children && d.data.children.length>0);
+        if(!has) return '';
+        return d.children ? '▾' : '▸';
+      });
+
+    nodeMerged.select('.tlabel')
+      .attr('x', 12)
+      .attr('dy', 4)
+      .text(d=> d.data.type==='root' ? '' : d.data.name);
+  }
+
+  update();
+
+  document.getElementById('tree-zoom-in').onclick = ()=>{ treeScale = Math.min(treeScale*1.2, 2.5); svg.style('transform',`scale(${treeScale})`); };
+  document.getElementById('tree-zoom-out').onclick = ()=>{ treeScale = Math.max(treeScale*0.8, 0.4); svg.style('transform',`scale(${treeScale})`); };
+  document.getElementById('tree-zoom-reset').onclick = ()=>{ treeScale = 1; svg.style('transform','scale(1)'); };
+
+  document.getElementById('tree-expand-all').onclick = ()=>{ treeCollapsed.clear(); renderTree(); };
+  document.getElementById('tree-collapse-all').onclick = ()=>{
+    treeRoot.children?.forEach(d=>{ if(d.data.type==='email'||d.data.type==='group') treeCollapsed.add(d.data.id); });
+    renderTree();
+  };
+
+  const searchInput = document.getElementById('tree-search');
+  searchInput.oninput = ()=>{
+    const q = searchInput.value.toLowerCase().trim();
+    if(!q){
+      d3.selectAll('.tnode').classed('tdim', false).classed('tmatch', false);
+      d3.selectAll('.tlink').classed('tdim', false);
+      return;
+    }
+    // Auto-expandir lo necesario para que las coincidencias sean visibles
+    let changed = false;
+    treeRoot.each(d=>{
+      if(d._children){
+        const matchInside = d._children.some(c => (c.data.name||'').toLowerCase().includes(q));
+        if(matchInside){ d.children = d._children; d._children = null; treeCollapsed.delete(d.data.id); changed = true; }
+      }
+    });
+    if(changed){ update(); }
+    d3.selectAll('.tnode').each(function(d){
+      const match = d.data.type!=='root' && (d.data.name||'').toLowerCase().includes(q);
+      d3.select(this).classed('tmatch', match).classed('tdim', !match);
+    });
+    d3.selectAll('.tlink').classed('tdim', true);
+  };
+}
+

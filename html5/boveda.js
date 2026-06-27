@@ -407,9 +407,11 @@ async function autosave(){
     });
     if(syncRes.ok){
       SERVER_BLOB = { salt: fileObj.salt, iv: fileObj.iv, data: fileObj.data, version: SERVER_BLOB?.version || 1 };
+    } else {
+      console.error("Autosave falló:", syncRes.data?.error || syncRes.status);
     }
   }catch(err){
-    // silent fail - user can manually click "Guardar"
+    console.error("Autosave error:", err);
   }
 }
 
@@ -828,7 +830,11 @@ function openDetailModal(id, kind){
 
   overlay.querySelector('#rel-add').addEventListener('click', ()=>{
     const targetId = overlay.querySelector('#rel-target').value;
-    if(!targetId){ return; }
+    if(!targetId){
+      overlay.querySelector('#rel-target').focus();
+      showCopyFeedback("⚠️ Elige una cuenta para vincular");
+      return;
+    }
     const label = overlay.querySelector('#rel-label').value.trim();
     VAULT.links.push({ id:uid(), from:id, to:targetId, type:'cross', label: label || 'vinculado' });
     overlay.remove();

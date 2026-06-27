@@ -407,9 +407,11 @@ async function autosave(){
     });
     if(syncRes.ok){
       SERVER_BLOB = { salt: fileObj.salt, iv: fileObj.iv, data: fileObj.data, version: SERVER_BLOB?.version || 1 };
+    } else {
+      console.error("Autosave falló:", syncRes.data?.error || syncRes.status);
     }
   }catch(err){
-    // silent fail - user can manually click "Guardar"
+    console.error("Autosave error:", err);
   }
 }
 

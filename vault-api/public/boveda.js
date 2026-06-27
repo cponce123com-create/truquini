@@ -219,6 +219,17 @@ loginPassword.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') btnLogin.click();
 });
 
+// Also submit on Enter in master password field
+masterPassInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    if (btnUnlock.style.display !== 'none') {
+      btnUnlock.click();
+    } else if (btnCreateNew.style.display !== 'none') {
+      btnCreateNew.click();
+    }
+  }
+});
+
 // ============================================================
 // LOCK SCREEN LOGIC
 // ============================================================

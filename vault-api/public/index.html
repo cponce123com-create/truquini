@@ -128,6 +128,17 @@
     border:1px dashed var(--border);border-radius:var(--radius-lg);
   }
 
+  /* ---------- Categories view ---------- */
+  .cat-card{
+    background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
+    padding:14px 16px;
+  }
+  .cat-card-top{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+  .cat-card-top .swatch{width:14px;height:14px;}
+  .cat-card-name{font-weight:600;font-size:14.5px;flex:1;}
+  .cat-card-count{font-size:11.5px;color:var(--text-muted);}
+  .cat-card-actions{display:flex;gap:6px;margin-top:10px;}
+
   /* ---------- Graph view ---------- */
   #graph-wrap{
     background:var(--panel);border:1px solid var(--border);border-radius:var(--radius-lg);
@@ -327,6 +338,7 @@
       <div class="tab active" data-tab="list">Lista</div>
       <div class="tab" data-tab="graph">Mapa de relaciones</div>
       <div class="tab" data-tab="tree">Vista árbol</div>
+      <div class="tab" data-tab="categories">Categorías</div>
     </div>
 
     <div class="main">
@@ -370,6 +382,17 @@
         <div id="tree-wrap">
           <svg id="tree-svg"></svg>
         </div>
+      </div>
+
+      <!-- CATEGORIES VIEW -->
+      <div id="view-categories" class="hidden">
+        <div class="toolbar">
+          <div style="flex:1;font-size:13px;color:var(--text-secondary);">
+            Crea, edita o borra las categorías que usarás al guardar cuentas (Render, Neon, Cloudinary, etc.)
+          </div>
+          <button class="btn btn-sm btn-primary" id="btn-add-category">+ Nueva categoría</button>
+        </div>
+        <div id="category-list" class="card-grid"></div>
       </div>
     </div>
   </div>

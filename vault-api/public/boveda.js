@@ -4,7 +4,7 @@ document.getElementById('login-api-url').value = window.location.origin;
 // ============================================================
 // STATE
 // ============================================================
-let VAULT = { emails: [], accounts: [], links: [] };
+let VAULT = { emails: [], accounts: [], links: [], categories: [] };
 let MASTER_KEY = null;     // CryptoKey, never serialized
 let MASTER_SALT = null;    // Uint8Array, stored alongside ciphertext
 let isNewVault = true;
@@ -33,18 +33,56 @@ async function apiCall(method, path, body) {
   }
 }
 
-const CATEGORY_COLORS = {
-  "correo":      "#5b8cff",
-  "hosting":     "#3ecf8e",
-  "base de datos":"#9b6bff",
-  "social":      "#e2a23a",
-  "mensajería":  "#3ab0e2",
-  "ia":          "#e25c9e",
-  "banco":       "#e25c5c",
-  "monitoreo":   "#5cc9c0",
-  "otro":        "#9aa1b4"
-};
-function colorFor(cat){ return CATEGORY_COLORS[(cat||"otro").toLowerCase()] || CATEGORY_COLORS["otro"]; }
+// Categorías por defecto: solo se usan para crear una bóveda nueva o para
+// migrar una bóveda vieja que no tenía VAULT.categories todavía.
+const DEFAULT_CATEGORIES = [
+  { id:"correo",        name:"Correo",         color:"#5b8cff" },
+  { id:"hosting",        name:"Hosting",        color:"#3ecf8e" },
+  { id:"base de datos",  name:"Base de datos",  color:"#9b6bff" },
+  { id:"social",         name:"Social",         color:"#e2a23a" },
+  { id:"mensajería",     name:"Mensajería",     color:"#3ab0e2" },
+  { id:"ia",             name:"IA",             color:"#e25c9e" },
+  { id:"banco",          name:"Banco",          color:"#e25c5c" },
+  { id:"monitoreo",      name:"Monitoreo",      color:"#5cc9c0" },
+  { id:"otro",           name:"Otro",           color:"#9aa1b4" }
+];
+
+// Asegura que VAULT.categories exista y tenga al menos "otro" y "correo".
+// Se llama cada vez que se crea o abre una bóveda (nueva o vieja).
+function ensureCategories(){
+  if(!Array.isArray(VAULT.categories) || VAULT.categories.length===0){
+    VAULT.categories = DEFAULT_CATEGORIES.map(c=>({...c}));
+    return;
+  }
+  // Si por alguna razón faltara "otro" (categoría de respaldo), la agregamos.
+  if(!VAULT.categories.some(c=>c.id==='otro')){
+    VAULT.categories.push({ id:'otro', name:'Otro', color:'#9aa1b4' });
+  }
+}
+
+function getCategories(){
+  // Categorías que se pueden asignar a una cuenta (excluye "correo", que es
+  // un tipo de nodo especial, no una categoría elegible).
+  return VAULT.categories.filter(c=>c.id!=='correo');
+}
+function getCategoryById(id){
+  return VAULT.categories.find(c=>c.id===id);
+}
+function colorFor(catId){
+  const c = getCategoryById(catId);
+  if(c) return c.color;
+  const fallback = getCategoryById('otro');
+  return fallback ? fallback.color : '#9aa1b4';
+}
+function nameForCategory(catId){
+  const c = getCategoryById(catId);
+  return c ? c.name : cap(catId||'otro');
+}
+function slugifyCategoryName(name){
+  return name.trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'') // quita tildes
+    .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') || ('cat-'+Date.now());
+}
 
 function uid(){ return crypto.randomUUID(); }
 
@@ -320,12 +358,13 @@ btnUnlock.addEventListener('click', async ()=>{
 async function createNewVault(password){
   MASTER_SALT = crypto.getRandomValues(new Uint8Array(16));
   MASTER_KEY = await deriveKey(password, MASTER_SALT);
-  VAULT = { emails: [], accounts: [], links: [] };
+  VAULT = { emails: [], accounts: [], links: [], categories: [] };
   isNewVault = true;
   enterApp();
 }
 
 function enterApp(){
+  ensureCategories();
   // Update sync indicator
   const syncEl = document.getElementById('sync-indicator');
   if (LOGGED_IN_USER) {
@@ -342,7 +381,7 @@ function enterApp(){
 
 document.getElementById('btn-lock').addEventListener('click', async ()=>{
   if(!confirm("¿Bloquear la bóveda? Asegúrate de haber exportado los cambios recientes antes de continuar.")) return;
-  MASTER_KEY=null; MASTER_SALT=null; VAULT={emails:[],accounts:[],links:[]};
+  MASTER_KEY=null; MASTER_SALT=null; VAULT={emails:[],accounts:[],links:[],categories:[]};
   appScreen.style.display='none';
   // If was logged in, go back to login screen; otherwise to lock screen
   if (LOGGED_IN_USER) {
@@ -466,8 +505,10 @@ document.querySelectorAll('.tab').forEach(tab=>{
     document.getElementById('view-list').classList.toggle('hidden', target!=='list');
     document.getElementById('view-graph').classList.toggle('hidden', target!=='graph');
     document.getElementById('view-tree').classList.toggle('hidden', target!=='tree');
+    document.getElementById('view-categories').classList.toggle('hidden', target!=='categories');
     if(target==='graph') renderGraph();
     if(target==='tree') renderTree();
+    if(target==='categories') renderCategories();
   });
 });
 
@@ -479,7 +520,7 @@ function renderStats(){
   const totalAccounts = VAULT.accounts.length;
   const totalEmails = VAULT.emails.length;
   const totalLinks = VAULT.links.length;
-  const cats = new Set(VAULT.accounts.map(a=>a.category||'otro')).size;
+  const cats = getCategories().length;
   el.innerHTML = `
     <div class="stat"><div class="num">${totalEmails}</div><div class="lbl">Correos</div></div>
     <div class="stat"><div class="num">${totalAccounts}</div><div class="lbl">Cuentas</div></div>
@@ -502,10 +543,10 @@ function getAllNodes(){
 
 function refreshCategoryFilter(){
   const sel = document.getElementById('filter-category');
-  const cats = Array.from(new Set(VAULT.accounts.map(a=>a.category||'otro'))).sort();
+  const cats = getCategories();
   const current = sel.value;
   sel.innerHTML = '<option value="">Todas las categorías</option>' +
-    cats.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(cap(c))}</option>`).join('');
+    cats.map(c=>`<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('');
   sel.value = current;
 }
 
@@ -544,7 +585,7 @@ function renderList(){
       <div class="acc-card" data-id="${item.id}" data-kind="${item.type}">
         <div class="acc-card-top">
           <div class="acc-card-name"><span class="swatch" style="background:${col}"></span>${escapeHtml(label)}</div>
-          <span class="badge">${escapeHtml(cap(cat))}</span>
+          <span class="badge">${escapeHtml(nameForCategory(cat))}</span>
         </div>
         <div class="acc-card-row"><span>Usuario</span><span>${escapeHtml(sub1)}</span></div>
         <div class="acc-card-row"><span>Conexiones</span><span>${linkedCount}</span></div>
@@ -573,6 +614,124 @@ function escapeHtml(s){
 function renderAll(){
   renderStats();
   renderList();
+  if(!document.getElementById('view-categories').classList.contains('hidden')) renderCategories();
+}
+
+// ============================================================
+// CATEGORIES: crear, editar, borrar
+// ============================================================
+function countAccountsInCategory(catId){
+  return VAULT.accounts.filter(a=>(a.category||'otro')===catId).length;
+}
+
+function renderCategories(){
+  const wrap = document.getElementById('category-list');
+  const cats = getCategories();
+  if(cats.length===0){
+    wrap.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">No hay categorías todavía. Usa "+ Nueva categoría" arriba.</div>`;
+    return;
+  }
+  wrap.innerHTML = cats.map(c=>{
+    const n = countAccountsInCategory(c.id);
+    const canDelete = c.id !== 'otro'; // "otro" es la categoría de respaldo, siempre debe existir
+    return `
+      <div class="cat-card" data-id="${escapeHtml(c.id)}">
+        <div class="cat-card-top">
+          <span class="swatch" style="background:${c.color}"></span>
+          <span class="cat-card-name">${escapeHtml(c.name)}</span>
+        </div>
+        <div class="cat-card-count">${n} cuenta${n===1?'':'s'} usando esta categoría</div>
+        <div class="cat-card-actions">
+          <button class="btn btn-sm" data-action="edit" data-id="${escapeHtml(c.id)}">Editar</button>
+          <button class="btn btn-sm btn-danger" data-action="delete" data-id="${escapeHtml(c.id)}" ${canDelete?'':'disabled title="Esta categoría no se puede borrar"'}>Borrar</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  wrap.querySelectorAll('[data-action="edit"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>openCategoryModal(btn.dataset.id));
+  });
+  wrap.querySelectorAll('[data-action="delete"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>deleteCategory(btn.dataset.id));
+  });
+}
+
+document.getElementById('btn-add-category').addEventListener('click', ()=>openCategoryModal(null));
+
+// Si existingId es null, se crea una categoría nueva. Si no, se edita esa categoría.
+function openCategoryModal(existingId){
+  const existing = existingId ? getCategoryById(existingId) : null;
+  const overlay = document.createElement('div');
+  overlay.className='modal-overlay';
+  const defaultColor = existing ? existing.color : '#5b8cff';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>${existing ? 'Editar categoría' : 'Nueva categoría'}</h2>
+      <div class="field">
+        <label>Nombre</label>
+        <input id="c-name" placeholder="Ej: Render, Neon, Cloudinary..." value="${existing?escapeHtml(existing.name):''}">
+      </div>
+      <div class="field">
+        <label>Color</label>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <input id="c-color" type="color" value="${defaultColor}" style="width:46px;height:36px;padding:2px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);">
+          <span style="font-size:12.5px;color:var(--text-muted);">Color que se usa en las tarjetas y mapas</span>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" id="c-cancel">Cancelar</button>
+        <button class="btn btn-primary" id="c-save">Guardar</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#c-cancel').addEventListener('click', ()=>overlay.remove());
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.remove(); });
+
+  overlay.querySelector('#c-save').addEventListener('click', ()=>{
+    const name = overlay.querySelector('#c-name').value.trim();
+    if(!name){ alert('El nombre no puede estar vacío.'); return; }
+    const color = overlay.querySelector('#c-color').value;
+
+    if(existing){
+      existing.name = name;
+      existing.color = color;
+    } else {
+      let id = slugifyCategoryName(name);
+      // evitar colisión de id con una categoría existente
+      if(getCategoryById(id)){
+        let i = 2;
+        while(getCategoryById(`${id}-${i}`)) i++;
+        id = `${id}-${i}`;
+      }
+      VAULT.categories.push({ id, name, color });
+    }
+    overlay.remove();
+    renderCategories();
+    renderAll();
+    autosave();
+  });
+}
+
+function deleteCategory(catId){
+  if(catId==='otro'){ return; } // protegida
+  const n = countAccountsInCategory(catId);
+  const cat = getCategoryById(catId);
+  const catName = cat ? cat.name : catId;
+  const msg = n>0
+    ? `"${catName}" tiene ${n} cuenta${n===1?'':'s'}. Si la borras, esa${n===1?'':'s'} cuenta${n===1?'':'s'} pasará${n===1?'':'n'} a la categoría "Otro". ¿Continuar?`
+    : `¿Borrar la categoría "${catName}"?`;
+  if(!confirm(msg)) return;
+
+  // Reasignar cuentas afectadas a "otro"
+  VAULT.accounts.forEach(a=>{
+    if((a.category||'otro')===catId) a.category = 'otro';
+  });
+  VAULT.categories = VAULT.categories.filter(c=>c.id!==catId);
+
+  renderCategories();
+  renderAll();
+  autosave();
 }
 
 // ============================================================
@@ -605,14 +764,7 @@ function openAddModal(){
         <div class="field">
           <label>Categoría</label>
           <select id="m-category">
-            <option value="hosting">Hosting</option>
-            <option value="base de datos">Base de datos</option>
-            <option value="social">Social</option>
-            <option value="mensajería">Mensajería</option>
-            <option value="ia">IA</option>
-            <option value="banco">Banco</option>
-            <option value="monitoreo">Monitoreo</option>
-            <option value="otro">Otro</option>
+            ${getCategories().map(c=>`<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('')}
           </select>
         </div>
       </div>
@@ -750,8 +902,8 @@ function openDetailModal(id, kind){
         <div class="field">
           <label>Categoría</label>
           <select id="d-category">
-            ${Object.keys(CATEGORY_COLORS).filter(c=>c!=='correo').map(c=>
-              `<option value="${c}" ${node.category===c?'selected':''}>${cap(c)}</option>`).join('')}
+            ${getCategories().map(c=>
+              `<option value="${escapeHtml(c.id)}" ${node.category===c.id?'selected':''}>${escapeHtml(c.name)}</option>`).join('')}
           </select>
         </div>
       </div>` : `
@@ -1065,7 +1217,7 @@ function renderLegend(cats){
   const el = document.getElementById('graph-legend');
   if(cats.length===0){ el.innerHTML=''; return; }
   el.innerHTML = cats.map(c=>`
-    <div class="legend-item"><span class="legend-dot" style="background:${colorFor(c)}"></span>${escapeHtml(cap(c))}</div>
+    <div class="legend-item"><span class="legend-dot" style="background:${colorFor(c)}"></span>${escapeHtml(nameForCategory(c))}</div>
   `).join('');
 }
 

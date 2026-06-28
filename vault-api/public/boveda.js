@@ -1301,13 +1301,21 @@ function renderGraph(){
 
   // Filtros de "brillo neuronal" — uno por color de categoría usada (sutil, no protagonista)
   usedCats.forEach(cat=>{
-    defs.append('filter')
+    const filter = defs.append('filter')
       .attr('id', `glow-${slugCat(cat)}`)
-      .attr('x','-150%').attr('y','-150%').attr('width','400%').attr('height','400%')
-      .append('feGaussianBlur')
+      .attr('x','-150%').attr('y','-150%').attr('width','400%').attr('height','400%');
+    filter.append('feGaussianBlur')
       .attr('in','SourceGraphic')
       .attr('stdDeviation', 2.6);
   });
+
+  // Filtro de resplandor eléctrico para enlaces
+  const electricFilter = defs.append('filter')
+    .attr('id', 'electric-glow')
+    .attr('x','-50%').attr('y','-50%').attr('width','200%').attr('height','200%');
+  electricFilter.append('feGaussianBlur')
+    .attr('in','SourceGraphic')
+    .attr('stdDeviation', 1.8);
 
   // Mapa de adyacencia directa para resaltar dependencias al pasar el cursor
   const neighborMap = new Map(nodesData.map(n=>[n.id, new Set([n.id])]));
@@ -1347,7 +1355,8 @@ function renderGraph(){
   const link = g.append('g').selectAll('line')
     .data(linksData).enter().append('line')
     .attr('class', d=> 'glink' + (d.type==='cross' ? ' cross':''))
-    .attr('marker-end','url(#arrowhead)');
+    .attr('marker-end','url(#arrowhead)')
+    .style('animation-delay', (d,i)=> ((i*0.18) % 3.2).toFixed(2)+'s');
 
   const linkLabel = g.append('g').selectAll('text')
     .data(linksData.filter(d=>d.label && d.type==='cross')).enter().append('text')
@@ -1357,7 +1366,7 @@ function renderGraph(){
   const node = g.append('g').selectAll('g')
     .data(nodesData).enter().append('g')
     .attr('class','gnode')
-    .style('animation-delay', (d,i)=> ((i*0.37) % 2.6).toFixed(2)+'s')
+    .style('animation-delay', (d,i)=> ((i*0.31) % 3.8).toFixed(2)+'s')
     .call(d3.drag()
       .on('start', dragstarted)
       .on('drag', dragged)

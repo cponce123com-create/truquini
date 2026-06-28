@@ -205,6 +205,82 @@
   .glink.highlighted{stroke:var(--accent);stroke-width:2;}
   .glink-label.dimmed{opacity:.12;}
 
+  /* ========== NEURAL NETWORK ANIMATIONS ========== */
+  /* Pulso eléctrico en los enlaces */
+  @keyframes electricPulse {
+    0% { stroke-width: 1.4; opacity: 0.5; filter: drop-shadow(0 0 2px currentColor); }
+    50% { stroke-width: 2.4; opacity: 0.9; filter: drop-shadow(0 0 8px currentColor); }
+    100% { stroke-width: 1.4; opacity: 0.5; filter: drop-shadow(0 0 2px currentColor); }
+  }
+
+  /* Animación de flujo de energía a lo largo del enlace */
+  @keyframes energyFlow {
+    0% { stroke-dashoffset: 0; }
+    100% { stroke-dashoffset: -24; }
+  }
+
+  /* Pulso intenso en nodos */
+  @keyframes nodePulse {
+    0%, 100% { filter: drop-shadow(0 0 3px currentColor); }
+    50% { filter: drop-shadow(0 0 12px currentColor); }
+  }
+
+  /* Halo neuronal mejorado con expansión */
+  @keyframes neuralHalo {
+    0%, 100% { opacity: 0.12; r: 18; }
+    50% { opacity: 0.4; r: 26; }
+  }
+
+  /* Destello de activación en nodos */
+  @keyframes activation {
+    0% { opacity: 0; }
+    15% { opacity: 1; }
+    85% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  /* Aplicar animaciones a elementos del grafo */
+  .glink {
+    animation: electricPulse 2.4s ease-in-out infinite;
+    stroke-dasharray: 8, 4;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
+  }
+
+  .glink.cross {
+    animation: electricPulse 1.8s ease-in-out infinite;
+  }
+
+  .gnode .halo {
+    animation: neuralHalo 2.8s ease-in-out infinite !important;
+  }
+
+  .gnode .core {
+    animation: nodePulse 2.2s ease-in-out infinite;
+  }
+
+  /* Efecto de activación en nodos al pasar el cursor */
+  .gnode:hover .core {
+    animation: activation 0.6s ease-out;
+  }
+
+  /* Resalte mejorado cuando está seleccionado */
+  .gnode.highlighted .core {
+    animation: nodePulse 1.2s ease-in-out infinite;
+    stroke-width: 2.5;
+  }
+
+  .glink.highlighted {
+    animation: electricPulse 1.4s ease-in-out infinite;
+    stroke-width: 2.5;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .glink { animation: none; }
+    .gnode .halo { animation: none !important; opacity: .24; }
+    .gnode .core { animation: none; }
+    .gnode:hover .core { animation: none; }
+  }
+
   /* ---------- Tree view (flat, sober map for fast lookup) ---------- */
   #tree-wrap{
     background:var(--panel);border:1px solid var(--border);border-radius:var(--radius-lg);

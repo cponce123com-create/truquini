@@ -11,6 +11,47 @@ let isNewVault = true;
 let activeFileBaseName = "boveda";
 
 // ============================================================
+// PANEL TOGGLE STATE
+// ============================================================
+let panelCollapsed = false;
+
+// Toggle panel visibility
+document.getElementById('btn-toggle-panel').addEventListener('click', () => {
+  const tabs = document.querySelector('.tabs');
+  const main = document.querySelector('.main');
+  panelCollapsed = !panelCollapsed;
+  
+  if (panelCollapsed) {
+    tabs.classList.add('collapsed');
+    main.classList.add('panel-hidden');
+  } else {
+    tabs.classList.remove('collapsed');
+    main.classList.remove('panel-hidden');
+  }
+  
+  // Guardar preferencia en localStorage
+  localStorage.setItem('panelCollapsed', panelCollapsed);
+  
+  // Disparar resize para que el grafo se ajuste al nuevo espacio
+  setTimeout(() => {
+    window.dispatchEvent(new Event('resize'));
+  }, 350);
+});
+
+// Restaurar estado del panel al cargar
+window.addEventListener('load', () => {
+  const savedState = localStorage.getItem('panelCollapsed');
+  if (savedState === 'true') {
+    panelCollapsed = true;
+    const tabs = document.querySelector('.tabs');
+    const main = document.querySelector('.main');
+    tabs.classList.add('collapsed');
+    main.classList.add('panel-hidden');
+  }
+});
+
+
+// ============================================================
 // BACKEND SYNC STATE
 // ============================================================
 let API_URL = "";            // ej: https://api.onrender.com

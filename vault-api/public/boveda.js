@@ -1213,6 +1213,12 @@ function truncateLabel(s){
   return s.length>16 ? s.slice(0,15)+'…' : s;
 }
 
+// Estimación simple del ancho en px de un texto en la fuente del árbol (~12px),
+// suficiente para ubicar la etiqueta de categoría sin solaparse con el nombre.
+function estimateTextWidth(s){
+  return (s||'').length * 6.6;
+}
+
 function renderLegend(cats){
   const el = document.getElementById('graph-legend');
   if(cats.length===0){ el.innerHTML=''; return; }
@@ -1289,7 +1295,7 @@ function renderTree(){
   treeRoot = root;
 
   const dx = 30; // separación vertical entre filas
-  const dy = 200; // separación horizontal entre niveles
+  const dy = 260; // separación horizontal entre niveles (ampliado para dejar sitio a la categoría junto al nombre)
   const layout = d3.tree().nodeSize([dx, dy]);
 
   function update(){
@@ -1320,6 +1326,7 @@ function renderTree(){
     nodeEnter.append('circle');
     nodeEnter.append('text').attr('class','tcaret');
     nodeEnter.append('text').attr('class','tlabel');
+    nodeEnter.append('text').attr('class','tsub');
 
     const nodeMerged = nodeEnter.merge(nodes)
       .attr('transform', d=>`translate(${d.y},${d.x})`)
@@ -1355,6 +1362,11 @@ function renderTree(){
       .attr('x', 12)
       .attr('dy', 4)
       .text(d=> d.data.type==='root' ? '' : d.data.name);
+
+    nodeMerged.select('.tsub')
+      .attr('x', d=> d.data.type==='account' ? 12 + estimateTextWidth(d.data.name) + 10 : 0)
+      .attr('dy', 4)
+      .text(d=> d.data.type==='account' ? nameForCategory(d.data.category) : '');
   }
 
   update();

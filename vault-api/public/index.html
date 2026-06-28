@@ -139,6 +139,24 @@
   .cat-card-count{font-size:11.5px;color:var(--text-muted);}
   .cat-card-actions{display:flex;gap:6px;margin-top:10px;}
 
+  /* ---------- Notes / Pendientes view ---------- */
+  .todo-card{
+    background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
+    padding:14px 16px;
+  }
+  .todo-card.resolved{ opacity:0.55; }
+  .todo-card-top{display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;}
+  .todo-card-title{font-weight:600;font-size:14.5px;flex:1;}
+  .todo-card.resolved .todo-card-title{ text-decoration:line-through; }
+  .todo-card-desc{font-size:13px;color:var(--text-secondary);white-space:pre-wrap;margin-bottom:8px;}
+  .todo-card-link{font-size:11.5px;color:var(--text-muted);margin-bottom:8px;}
+  .todo-card-actions{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}
+  .todo-badge{
+    font-size:10.5px;padding:2px 8px;border-radius:999px;white-space:nowrap;
+  }
+  .todo-badge.pending{ background:rgba(226,162,58,0.18); color:#e2a23a; }
+  .todo-badge.resolved{ background:rgba(62,207,142,0.15); color:#3ecf8e; }
+
   /* ---------- Graph view ---------- */
   #graph-wrap{
     background:var(--panel);border:1px solid var(--border);border-radius:var(--radius-lg);
@@ -339,6 +357,7 @@
       <div class="tab" data-tab="graph">Mapa de relaciones</div>
       <div class="tab" data-tab="tree">Vista árbol</div>
       <div class="tab" data-tab="categories">Categorías</div>
+      <div class="tab" data-tab="todos">Pendientes</div>
     </div>
 
     <div class="main">
@@ -393,6 +412,20 @@
           <button class="btn btn-sm btn-primary" id="btn-add-category">+ Nueva categoría</button>
         </div>
         <div id="category-list" class="card-grid"></div>
+      </div>
+
+      <!-- NOTES / PENDIENTES VIEW -->
+      <div id="view-todos" class="hidden">
+        <div class="toolbar">
+          <select id="todos-filter">
+            <option value="pending">Pendientes</option>
+            <option value="resolved">Resueltos</option>
+            <option value="all">Todos</option>
+          </select>
+          <div style="flex:1;"></div>
+          <button class="btn btn-sm btn-primary" id="btn-add-todo">+ Nuevo pendiente</button>
+        </div>
+        <div id="todo-list" class="card-grid"></div>
       </div>
     </div>
   </div>

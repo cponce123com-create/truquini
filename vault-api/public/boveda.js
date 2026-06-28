@@ -4,7 +4,7 @@ document.getElementById('login-api-url').value = window.location.origin;
 // ============================================================
 // STATE
 // ============================================================
-let VAULT = { emails: [], accounts: [], links: [], categories: [] };
+let VAULT = { emails: [], accounts: [], links: [], categories: [], todos: [] };
 let MASTER_KEY = null;     // CryptoKey, never serialized
 let MASTER_SALT = null;    // Uint8Array, stored alongside ciphertext
 let isNewVault = true;
@@ -62,6 +62,7 @@ function ensureVaultShape(){
   if(!Array.isArray(VAULT.accounts)){ VAULT.accounts = []; wasValid = false; }
   if(!Array.isArray(VAULT.links)){ VAULT.links = []; wasValid = false; }
   if(!Array.isArray(VAULT.categories)){ VAULT.categories = []; wasValid = false; }
+  if(!Array.isArray(VAULT.todos)){ VAULT.todos = []; wasValid = false; }
   return wasValid;
 }
 
@@ -376,14 +377,21 @@ btnUnlock.addEventListener('click', async ()=>{
 async function createNewVault(password){
   MASTER_SALT = crypto.getRandomValues(new Uint8Array(16));
   MASTER_KEY = await deriveKey(password, MASTER_SALT);
-  VAULT = { emails: [], accounts: [], links: [], categories: [] };
+  VAULT = { emails: [], accounts: [], links: [], categories: [], todos: [] };
   isNewVault = true;
   enterApp();
+}
+
+// Asegura que VAULT.todos exista como array. Se llama al abrir cualquier bóveda
+// (nueva o vieja, esta última puede no tener el campo todavía).
+function ensureTodos(){
+  if(!Array.isArray(VAULT.todos)) VAULT.todos = [];
 }
 
 function enterApp(){
   const shapeWasValid = ensureVaultShape();
   ensureCategories();
+  ensureTodos();
   // Update sync indicator
   const syncEl = document.getElementById('sync-indicator');
   if (LOGGED_IN_USER) {
@@ -403,7 +411,7 @@ function enterApp(){
 
 document.getElementById('btn-lock').addEventListener('click', async ()=>{
   if(!confirm("¿Bloquear la bóveda? Asegúrate de haber exportado los cambios recientes antes de continuar.")) return;
-  MASTER_KEY=null; MASTER_SALT=null; VAULT={emails:[],accounts:[],links:[],categories:[]};
+  MASTER_KEY=null; MASTER_SALT=null; VAULT={emails:[],accounts:[],links:[],categories:[],todos:[]};
   appScreen.style.display='none';
   // If was logged in, go back to login screen; otherwise to lock screen
   if (LOGGED_IN_USER) {
@@ -528,9 +536,11 @@ document.querySelectorAll('.tab').forEach(tab=>{
     document.getElementById('view-graph').classList.toggle('hidden', target!=='graph');
     document.getElementById('view-tree').classList.toggle('hidden', target!=='tree');
     document.getElementById('view-categories').classList.toggle('hidden', target!=='categories');
+    document.getElementById('view-todos').classList.toggle('hidden', target!=='todos');
     if(target==='graph') renderGraph();
     if(target==='tree') renderTree();
     if(target==='categories') renderCategories();
+    if(target==='todos') renderTodos();
   });
 });
 
@@ -637,6 +647,151 @@ function renderAll(){
   renderStats();
   renderList();
   if(!document.getElementById('view-categories').classList.contains('hidden')) renderCategories();
+  if(!document.getElementById('view-todos').classList.contains('hidden')) renderTodos();
+}
+
+// ============================================================
+// PENDIENTES (TODOs): notas sueltas, opcionalmente ligadas a una cuenta
+// ============================================================
+// Nota de nombres: esto es VAULT.todos (lista global de pendientes/recordatorios).
+// Es DISTINTO del campo account.notes / email.notes, que es el cuadro de texto
+// libre que ya existía dentro del detalle de cada cuenta para apuntes privados
+// de esa cuenta puntual. No conviene unificarlos: un pendiente tiene título,
+// fecha y estado (resuelto o no); una nota de cuenta es solo un campo de texto.
+
+function getTodoLinkedNode(todo){
+  if(!todo.linkedId) return null;
+  return getAllNodes().find(n=>n.id===todo.linkedId) || null;
+}
+
+function renderTodos(){
+  ensureTodos();
+  const wrap = document.getElementById('todo-list');
+  const filter = document.getElementById('todos-filter').value;
+  let items = VAULT.todos.slice().sort((a,b)=> (b.createdAt||0)-(a.createdAt||0));
+  if(filter==='pending') items = items.filter(t=>!t.resolved);
+  if(filter==='resolved') items = items.filter(t=>t.resolved);
+
+  if(items.length===0){
+    const msg = filter==='resolved' ? 'No hay pendientes resueltos todavía.'
+              : filter==='pending' ? 'No tienes pendientes abiertos. 🎉'
+              : 'No hay pendientes todavía. Usa "+ Nuevo pendiente" arriba.';
+    wrap.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">${msg}</div>`;
+    return;
+  }
+
+  wrap.innerHTML = items.map(t=>{
+    const linked = getTodoLinkedNode(t);
+    const linkedLabel = linked ? (linked.type==='email' ? linked.address : linked.name) : null;
+    return `
+      <div class="todo-card ${t.resolved?'resolved':''}" data-id="${escapeHtml(t.id)}">
+        <div class="todo-card-top">
+          <div class="todo-card-title">${escapeHtml(t.title)}</div>
+          <span class="todo-badge ${t.resolved?'resolved':'pending'}">${t.resolved?'Resuelto':'Pendiente'}</span>
+        </div>
+        ${t.description ? `<div class="todo-card-desc">${escapeHtml(t.description)}</div>` : ''}
+        ${linkedLabel ? `<div class="todo-card-link">🔗 ${escapeHtml(linkedLabel)}</div>` : ''}
+        <div class="todo-card-actions">
+          <button class="btn btn-sm" data-action="toggle" data-id="${escapeHtml(t.id)}">${t.resolved?'Marcar pendiente':'Marcar resuelto'}</button>
+          <button class="btn btn-sm" data-action="edit" data-id="${escapeHtml(t.id)}">Editar</button>
+          <button class="btn btn-sm btn-danger" data-action="delete" data-id="${escapeHtml(t.id)}">Borrar</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  wrap.querySelectorAll('[data-action="toggle"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>toggleTodo(btn.dataset.id));
+  });
+  wrap.querySelectorAll('[data-action="edit"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>openTodoModal(btn.dataset.id));
+  });
+  wrap.querySelectorAll('[data-action="delete"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>deleteTodo(btn.dataset.id));
+  });
+}
+
+document.getElementById('todos-filter').addEventListener('change', renderTodos);
+document.getElementById('btn-add-todo').addEventListener('click', ()=>openTodoModal(null));
+
+function toggleTodo(todoId){
+  const t = VAULT.todos.find(x=>x.id===todoId);
+  if(!t) return;
+  t.resolved = !t.resolved;
+  renderTodos();
+  autosave();
+}
+
+function deleteTodo(todoId){
+  const t = VAULT.todos.find(x=>x.id===todoId);
+  if(!t) return;
+  if(!confirm(`¿Borrar el pendiente "${t.title}"?`)) return;
+  VAULT.todos = VAULT.todos.filter(x=>x.id!==todoId);
+  renderTodos();
+  autosave();
+}
+
+// Si existingId es null, se crea un pendiente nuevo. Si no, se edita ese pendiente.
+// preselectLinkedId permite abrir el modal ya enlazado a una cuenta/correo en
+// particular (se usa desde el botón "+ Pendiente" dentro del detalle de una cuenta).
+function openTodoModal(existingId, preselectLinkedId, onClose){
+  const existing = existingId ? VAULT.todos.find(x=>x.id===existingId) : null;
+  const nodes = getAllNodes();
+  const linkedValue = existing ? (existing.linkedId||'') : (preselectLinkedId||'');
+
+  const overlay = document.createElement('div');
+  overlay.className='modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>${existing ? 'Editar pendiente' : 'Nuevo pendiente'}</h2>
+      <div class="field">
+        <label>Título</label>
+        <input id="t-title" placeholder="Ej: Conectar Cloudinary" value="${existing?escapeHtml(existing.title):''}">
+      </div>
+      <div class="field">
+        <label>Descripción (opcional)</label>
+        <textarea id="t-desc" placeholder="Ej: No se puede acceder por bloqueo de Google, probar con otro correo">${existing?escapeHtml(existing.description||''):''}</textarea>
+      </div>
+      <div class="field">
+        <label>Vincular a una cuenta o correo (opcional)</label>
+        <select id="t-linked">
+          <option value="">Sin vincular</option>
+          ${nodes.map(n=>{
+            const label = n.type==='email' ? `✉️ ${n.address}` : `🔑 ${n.name}`;
+            return `<option value="${escapeHtml(n.id)}" ${linkedValue===n.id?'selected':''}>${escapeHtml(label)}</option>`;
+          }).join('')}
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" id="t-cancel">Cancelar</button>
+        <button class="btn btn-primary" id="t-save">Guardar</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const closeAndReturn = ()=>{ overlay.remove(); if(onClose) onClose(); };
+  overlay.querySelector('#t-cancel').addEventListener('click', closeAndReturn);
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) closeAndReturn(); });
+
+  overlay.querySelector('#t-save').addEventListener('click', ()=>{
+    const title = overlay.querySelector('#t-title').value.trim();
+    if(!title){ alert('El título no puede estar vacío.'); return; }
+    const description = overlay.querySelector('#t-desc').value.trim();
+    const linkedId = overlay.querySelector('#t-linked').value || null;
+
+    if(existing){
+      existing.title = title;
+      existing.description = description;
+      existing.linkedId = linkedId;
+    } else {
+      VAULT.todos.push({
+        id: uid(), title, description, linkedId,
+        resolved: false, createdAt: Date.now()
+      });
+    }
+    closeAndReturn();
+    renderTodos();
+    autosave();
+  });
 }
 
 // ============================================================
@@ -907,6 +1062,18 @@ function openDetailModal(id, kind){
 
   const otherNodes = getAllNodes().filter(n=>n.id!==id);
 
+  ensureTodos();
+  const nodeTodos = VAULT.todos.filter(t=>t.linkedId===id);
+  const nodeTodosHtml = nodeTodos.length===0
+    ? `<div style="font-size:12.5px;color:var(--text-muted);">Sin pendientes para esta cuenta.</div>`
+    : nodeTodos.map(t=>`
+      <div class="rel-item">
+        <span class="${t.resolved?'todo-card resolved':''}" style="background:none;border:none;padding:0;">
+          ${t.resolved?'✅':'🟡'} ${escapeHtml(t.title)}
+        </span>
+        <button class="x" data-todo-id="${t.id}" title="Editar pendiente">✎</button>
+      </div>`).join('');
+
   overlay.innerHTML = `
     <div class="modal">
       <h2>${escapeHtml(node.type==='email'?node.address:node.name)}</h2>
@@ -963,6 +1130,12 @@ function openDetailModal(id, kind){
         </div>
       </div>
 
+      <div class="field">
+        <label>Pendientes de esta cuenta</label>
+        <div id="d-todo-list">${nodeTodosHtml}</div>
+        <button class="btn btn-sm" id="d-add-todo" type="button">+ Agregar pendiente</button>
+      </div>
+
       <div class="modal-actions">
         <button class="btn btn-danger modal-actions-left" id="d-delete">Eliminar</button>
         <button class="btn" id="d-cancel">Cerrar</button>
@@ -971,6 +1144,17 @@ function openDetailModal(id, kind){
     </div>
   `;
   document.body.appendChild(overlay);
+
+  overlay.querySelector('#d-add-todo').addEventListener('click', ()=>{
+    overlay.remove();
+    openTodoModal(null, id, ()=>openDetailModal(id, kind));
+  });
+  overlay.querySelectorAll('[data-todo-id]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      overlay.remove();
+      openTodoModal(btn.dataset.todoId, null, ()=>openDetailModal(id, kind));
+    });
+  });
 
   overlay.querySelectorAll('.pw-toggle').forEach(btn=>{
     btn.addEventListener('click', ()=>{

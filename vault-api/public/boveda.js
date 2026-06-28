@@ -47,6 +47,24 @@ const DEFAULT_CATEGORIES = [
   { id:"otro",           name:"Otro",           color:"#9aa1b4" }
 ];
 
+// Valida y normaliza la forma de VAULT después de descifrar un archivo.
+// Si falta o viene mal alguno de los arrays esperados, se reemplaza por uno
+// vacío en vez de dejar que el resto de la app falle con un error críptico.
+// Devuelve true si la forma era válida, false si tuvo que corregir algo
+// (la app sigue funcionando, pero conviene avisarle al usuario).
+function ensureVaultShape(){
+  let wasValid = true;
+  if(typeof VAULT !== 'object' || VAULT === null){
+    VAULT = {};
+    wasValid = false;
+  }
+  if(!Array.isArray(VAULT.emails)){ VAULT.emails = []; wasValid = false; }
+  if(!Array.isArray(VAULT.accounts)){ VAULT.accounts = []; wasValid = false; }
+  if(!Array.isArray(VAULT.links)){ VAULT.links = []; wasValid = false; }
+  if(!Array.isArray(VAULT.categories)){ VAULT.categories = []; wasValid = false; }
+  return wasValid;
+}
+
 // Asegura que VAULT.categories exista y tenga al menos "otro" y "correo".
 // Se llama cada vez que se crea o abre una bóveda (nueva o vieja).
 function ensureCategories(){
@@ -364,6 +382,7 @@ async function createNewVault(password){
 }
 
 function enterApp(){
+  const shapeWasValid = ensureVaultShape();
   ensureCategories();
   // Update sync indicator
   const syncEl = document.getElementById('sync-indicator');
@@ -377,6 +396,9 @@ function enterApp(){
   lockScreen.style.display='none';
   appScreen.style.display='flex';
   renderAll();
+  if(!shapeWasValid){
+    showCopyFeedback("⚠️ El archivo tenía un formato inesperado, se abrió de forma parcial");
+  }
 }
 
 document.getElementById('btn-lock').addEventListener('click', async ()=>{
@@ -998,6 +1020,13 @@ function openDetailModal(id, kind){
     if(!targetId){
       overlay.querySelector('#rel-target').focus();
       showCopyFeedback("⚠️ Elige una cuenta para vincular");
+      return;
+    }
+    const alreadyLinked = VAULT.links.some(l=>
+      (l.from===id && l.to===targetId) || (l.from===targetId && l.to===id)
+    );
+    if(alreadyLinked){
+      showCopyFeedback("⚠️ Ya existe una conexión entre estas dos cuentas");
       return;
     }
     const label = overlay.querySelector('#rel-label').value.trim();

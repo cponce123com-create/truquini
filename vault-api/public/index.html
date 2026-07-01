@@ -360,6 +360,34 @@
   }
   .copy-feedback.show{opacity:1;transform:translateX(-50%) translateY(-6px);}
 
+  /* ---------- Recommendations view ---------- */
+  .rec-actions{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
+  .rec-summary{font-size:12px;color:var(--text-muted);}
+  .rec-list{display:flex;flex-direction:column;gap:10px;}
+  .rec-card{
+    background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
+    padding:14px 16px;transition:border-color .15s;
+  }
+  .rec-card:hover{border-color:var(--border-strong);}
+  .rec-card-header{display:flex;align-items:flex-start;gap:10px;margin-bottom:6px;}
+  .rec-icon{font-size:16px;flex:none;margin-top:1px;}
+  .rec-card-title{font-weight:600;font-size:14px;margin:0 0 2px;}
+  .rec-card-desc{font-size:12.5px;color:var(--text-secondary);line-height:1.5;margin:0;}
+  .rec-card-items{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+  .rec-chip{
+    font-size:11.5px;padding:4px 10px;border-radius:999px;cursor:pointer;
+    background:var(--panel2);border:1px solid var(--border);color:var(--text-secondary);
+    transition:border-color .15s,color .15s;
+  }
+  .rec-chip:hover{border-color:var(--accent);color:var(--text);}
+  .rec-empty{
+    text-align:center;padding:40px 20px;color:var(--text-muted);font-size:13.5px;
+    border:1px dashed var(--border);border-radius:var(--radius-lg);
+  }
+  .rec-severity-info{border-left:3px solid var(--accent);}
+  .rec-severity-warning{border-left:3px solid var(--warning);}
+  .rec-severity-suggestion{border-left:3px solid var(--success);}
+
   @media (max-width:640px){
     .lock-card{padding:26px 20px;}
     .main{padding:16px 14px 60px;}
@@ -447,6 +475,7 @@
       <div class="tab" data-tab="tree">Vista árbol</div>
       <div class="tab" data-tab="categories">Categorías</div>
       <div class="tab" data-tab="todos">Pendientes</div>
+      <div class="tab" data-tab="recommend">Recomendaciones</div>
     </div>
 
     <div class="main">
@@ -515,6 +544,16 @@
           <button class="btn btn-sm btn-primary" id="btn-add-todo">+ Nuevo pendiente</button>
         </div>
         <div id="todo-list" class="card-grid"></div>
+      </div>
+
+      <!-- RECOMMENDATIONS VIEW -->
+      <div id="view-recommend" class="hidden">
+        <div class="rec-actions">
+          <button class="btn btn-sm" id="btn-reanalyze" title="Volver a analizar">⟳ Re-analizar</button>
+          <span class="rec-summary" id="rec-summary"></span>
+        </div>
+        <div id="rec-list"></div>
+      </div>
       </div>
     </div>
   </div>

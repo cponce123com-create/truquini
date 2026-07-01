@@ -454,7 +454,9 @@ document.querySelectorAll('.tab').forEach(tab=>{
     const target = tab.dataset.tab;
     document.getElementById('view-list').classList.toggle('hidden', target!=='list');
     document.getElementById('view-graph').classList.toggle('hidden', target!=='graph');
+    document.getElementById('view-recommend').classList.toggle('hidden', target!=='recommend');
     if(target==='graph') renderGraph();
+    if(target==='recommend') renderRecommendations();
   });
 });
 
@@ -555,6 +557,91 @@ document.getElementById('filter-category').addEventListener('change', renderList
 function cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
 function escapeHtml(s){
   return String(s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ============================================================
+// DUPLICATE DETECTION  (filtro inteligente)
+// ============================================================
+function findDuplicates(type, name, username, excludeId) {
+  const results = [];
+  const nameNorm = name.toLowerCase().trim();
+
+  if (type === 'email') {
+    const exact = VAULT.emails.find(
+      e => e.id !== excludeId && e.address.toLowerCase() === nameNorm
+    );
+    if (exact) {
+      results.push({ kind: 'exact', match: exact, label: 'Correo exacto: ' + exact.address });
+    }
+    const at = nameNorm.indexOf('@');
+    if (at > 0) {
+      const domain = nameNorm.slice(at);
+      VAULT.emails.forEach(e => {
+        if (e.id !== excludeId && e.id !== (exact && exact.id) && e.address.toLowerCase().endsWith(domain)) {
+          results.push({ kind: 'domain', match: e, label: 'Mismo dominio: ' + e.address });
+        }
+      });
+      VAULT.accounts.forEach(a => {
+        if ((a.username || '').toLowerCase().endsWith(domain)) {
+          results.push({ kind: 'domain', match: a, label: 'Cuenta "' + a.name + '" con ese dominio en usuario' });
+        }
+      });
+    }
+  } else {
+    const exact = VAULT.accounts.find(
+      a => a.id !== excludeId && a.name.toLowerCase() === nameNorm
+    );
+    if (exact) {
+      results.push({ kind: 'exact', match: exact, label: 'Cuenta exacta: "' + exact.name + '"' });
+    }
+    VAULT.accounts.forEach(a => {
+      if (a.id !== excludeId && a.id !== (exact && exact.id)) {
+        const aNorm = a.name.toLowerCase();
+        if ((aNorm.includes(nameNorm) || nameNorm.includes(aNorm)) && aNorm !== nameNorm) {
+          results.push({ kind: 'similar', match: a, label: 'Similar: "' + a.name + '"' });
+        }
+      }
+    });
+    if (username) {
+      const uNorm = username.toLowerCase().trim();
+      VAULT.accounts.forEach(a => {
+        if (a.id !== excludeId && (a.username || '').toLowerCase().trim() === uNorm) {
+          if (!results.some(r => r.match.id === a.id)) {
+            results.push({ kind: 'username', match: a, label: 'Mismo usuario en: "' + a.name + '"' });
+          }
+        }
+      });
+    }
+  }
+  return results;
+}
+
+function showDuplicateWarning(duplicates, onProceed) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML =
+    '<div class="modal" style="max-width:440px;">' +
+      '<h2 style="color:var(--warning);margin-bottom:12px;">\u26A0\uFE0F Posible duplicado</h2>' +
+      '<p style="font-size:13px;color:var(--text-secondary);margin:0 0 14px;">' +
+        'Se encontraron <strong>' + duplicates.length + '</strong> registro(s) similar(es) en tu b\u00F3veda:' +
+      '</p>' +
+      '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px;">' +
+        duplicates.map(function(d) {
+          return '<div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12.5px;">' + escapeHtml(d.label) + '</div>';
+        }).join('') +
+      '</div>' +
+      '<p style="font-size:12.5px;color:var(--text-muted);margin:0 0 6px;">' +
+        '\u00BFAgregar o actualizar de todas formas?' +
+      '</p>' +
+      '<div class="modal-actions">' +
+        '<button class="btn" id="dw-cancel">Cancelar</button>' +
+        '<button class="btn btn-primary" id="dw-proceed">Guardar de todas formas</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  overlay.querySelector('#dw-cancel').addEventListener('click', function() { overlay.remove(); });
+  overlay.querySelector('#dw-proceed').addEventListener('click', function() { overlay.remove(); onProceed(); });
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
 }
 
 function renderAll(){
@@ -671,20 +758,30 @@ function openAddModal(){
     const url = overlay.querySelector('#m-url').value.trim();
     const notes = overlay.querySelector('#m-notes').value.trim();
 
-    if(typeSelect.value==='email'){
-      VAULT.emails.push({ id:uid(), address:name, password, url, notes });
-    } else {
-      const category = overlay.querySelector('#m-category').value;
-      const ownerId = ownerSelect.value;
-      const newAcc = { id:uid(), name, username, password, url, category, notes };
-      VAULT.accounts.push(newAcc);
-      if(ownerId){
-        VAULT.links.push({ id:uid(), from:ownerId, to:newAcc.id, type:'owner', label:'' });
-      }
+    // Filtro inteligente de duplicados
+    const duplicates = findDuplicates(typeSelect.value, name, username);
+    if (duplicates.length > 0) {
+      showDuplicateWarning(duplicates, function() { actuallySave(); });
+      return;
     }
-    overlay.remove();
-    renderAll();
-    autosave();
+    actuallySave();
+
+    function actuallySave() {
+      if(typeSelect.value==='email'){
+        VAULT.emails.push({ id:uid(), address:name, password, url, notes });
+      } else {
+        const category = overlay.querySelector('#m-category').value;
+        const ownerId = ownerSelect.value;
+        const newAcc = { id:uid(), name, username, password, url, category, notes };
+        VAULT.accounts.push(newAcc);
+        if(ownerId){
+          VAULT.links.push({ id:uid(), from:ownerId, to:newAcc.id, type:'owner', label:'' });
+        }
+      }
+      overlay.remove();
+      renderAll();
+      autosave();
+    }
   });
 }
 
@@ -812,20 +909,33 @@ function openDetailModal(id, kind){
     const url = overlay.querySelector('#d-url').value.trim();
     const notes = overlay.querySelector('#d-notes').value.trim();
 
-    if(node.type==='account'){
-      const acc = VAULT.accounts.find(x=>x.id===id);
-      acc.name = newName;
-      acc.username = overlay.querySelector('#d-username').value.trim();
-      acc.category = overlay.querySelector('#d-category').value;
-      acc.password = password; acc.url = url; acc.notes = notes;
-    } else {
-      const em = VAULT.emails.find(x=>x.id===id);
-      em.address = newName;
-      em.password = password; em.url = url; em.notes = notes;
+    const typeLabel = node.type==='account' ? 'account' : 'email';
+    const username = node.type==='account' ? overlay.querySelector('#d-username').value.trim() : '';
+
+    // Filtro inteligente de duplicados (excluye el registro actual)
+    const duplicates = findDuplicates(typeLabel, newName, username, id);
+    if (duplicates.length > 0) {
+      showDuplicateWarning(duplicates, function() { actuallySaveEdit(); });
+      return;
     }
-    overlay.remove();
-    renderAll();
-    autosave();
+    actuallySaveEdit();
+
+    function actuallySaveEdit() {
+      if(node.type==='account'){
+        const acc = VAULT.accounts.find(x=>x.id===id);
+        acc.name = newName;
+        acc.username = overlay.querySelector('#d-username').value.trim();
+        acc.category = overlay.querySelector('#d-category').value;
+        acc.password = password; acc.url = url; acc.notes = notes;
+      } else {
+        const em = VAULT.emails.find(x=>x.id===id);
+        em.address = newName;
+        em.password = password; em.url = url; em.notes = notes;
+      }
+      overlay.remove();
+      renderAll();
+      autosave();
+    }
   });
 
   overlay.querySelector('#rel-add').addEventListener('click', ()=>{
@@ -991,3 +1101,284 @@ function renderLegend(cats){
 window.addEventListener('resize', ()=>{
   if(!document.getElementById('view-graph').classList.contains('hidden')) renderGraph();
 });
+
+// ============================================================
+// RECOMMENDATIONS  (algoritmo inteligente de optimizaci\u00F3n)
+// ============================================================
+
+function generateRecommendations() {
+  const recs = [];
+  var i, j, k, a, e, l, key, nameNorm, aNorm, emailUser, other, links, owners, linkedIds;
+
+  // --- 1. Duplicate / similar account names ---
+  var nameMap = {};
+  for (i = 0; i < VAULT.accounts.length; i++) {
+    a = VAULT.accounts[i];
+    key = a.name.toLowerCase().trim();
+    if (!nameMap[key]) nameMap[key] = [];
+    nameMap[key].push(a);
+  }
+  var nameKeys = Object.keys(nameMap);
+  for (i = 0; i < nameKeys.length; i++) {
+    var group = nameMap[nameKeys[i]];
+    if (group.length > 1) {
+      owners = [];
+      for (j = 0; j < group.length; j++) {
+        links = VAULT.links.filter(function(l) { return l.to === group[j].id && l.type === 'owner'; });
+        for (k = 0; k < links.length; k++) {
+          var ownerEmail = findNodeById(links[k].from);
+          if (ownerEmail && ownerEmail.type === 'email') owners.push(ownerEmail.address);
+        }
+      }
+      recs.push({
+        type: 'duplicate_accounts',
+        severity: 'warning',
+        icon: '\u26A0\uFE0F',
+        title: 'M\u00FAltiples cuentas: "' + group[0].name + '"',
+        desc: 'Hay ' + group.length + ' cuentas con el mismo nombre. ' +
+          (owners.length > 0 ? 'Est\u00E1n asociadas a: ' + owners.join(', ') + '. ' : '') +
+          'Considera consolidarlas en una sola cuenta.',
+        items: group.map(function(g) { return { id: g.id, name: g.name, type: 'account' }; })
+      });
+    }
+  }
+
+  // --- 2. Similar names (substring) across accounts ---
+  var accList = VAULT.accounts;
+  for (i = 0; i < accList.length; i++) {
+    for (j = i + 1; j < accList.length; j++) {
+      nameNorm = accList[i].name.toLowerCase().trim();
+      aNorm = accList[j].name.toLowerCase().trim();
+      if (nameNorm !== aNorm && (nameNorm.includes(aNorm) || aNorm.includes(nameNorm))) {
+        var already = false;
+        for (k = 0; k < recs.length; k++) {
+          if (recs[k].type === 'similar_accounts') {
+            var ids = recs[k].items.map(function(it) { return it.id; });
+            if (ids.indexOf(accList[i].id) >= 0 && ids.indexOf(accList[j].id) >= 0) { already = true; break; }
+          }
+        }
+        if (!already) {
+          recs.push({
+            type: 'similar_accounts',
+            severity: 'suggestion',
+            icon: '\uD83D\uDD0D',
+            title: 'Nombres similares: "' + accList[i].name + '" y "' + accList[j].name + '"',
+            desc: 'Estas cuentas tienen nombres parecidos. Verifica si son el mismo servicio y consolida.',
+            items: [
+              { id: accList[i].id, name: accList[i].name, type: 'account' },
+              { id: accList[j].id, name: accList[j].name, type: 'account' }
+            ]
+          });
+        }
+      }
+    }
+  }
+
+  // --- 3. Orphan emails (no linked accounts) ---
+  for (i = 0; i < VAULT.emails.length; i++) {
+    e = VAULT.emails[i];
+    links = VAULT.links.filter(function(l) { return l.from === e.id; });
+    if (links.length === 0) {
+      recs.push({
+        type: 'orphan_email',
+        severity: 'info',
+        icon: '\uD83D\uDCE7',
+        title: 'Correo sin cuentas vinculadas',
+        desc: '"' + e.address + '" no tiene cuentas vinculadas. Si ya no se usa, considera eliminar el registro.',
+        items: [{ id: e.id, name: e.address, type: 'email' }]
+      });
+    }
+  }
+
+  // --- 4. Unlinked accounts (no owner email) ---
+  for (i = 0; i < VAULT.accounts.length; i++) {
+    a = VAULT.accounts[i];
+    links = VAULT.links.filter(function(l) { return l.to === a.id && l.type === 'owner'; });
+    if (links.length === 0) {
+      recs.push({
+        type: 'unlinked_account',
+        severity: 'info',
+        icon: '\uD83D\uDD17',
+        title: 'Cuenta sin correo due\u00F1o',
+        desc: '"' + a.name + '" no tiene un correo due\u00F1o asignado. Vincularlo a un correo ayuda a mantener el orden.',
+        items: [{ id: a.id, name: a.name, type: 'account' }]
+      });
+    }
+  }
+
+  // --- 5. Suggest link: email local-part matches account username ---
+  for (i = 0; i < VAULT.emails.length; i++) {
+    e = VAULT.emails[i];
+    emailUser = e.address.split('@')[0].toLowerCase().trim();
+    if (!emailUser) continue;
+    for (j = 0; j < VAULT.accounts.length; j++) {
+      a = VAULT.accounts[j];
+      var aUser = (a.username || '').toLowerCase().trim();
+      if (aUser && (aUser.indexOf(emailUser) >= 0 || emailUser.indexOf(aUser) >= 0)) {
+        var isLinked = VAULT.links.some(function(l) {
+          return (l.from === e.id && l.to === a.id) || (l.from === a.id && l.to === e.id);
+        });
+        if (!isLinked && aUser.length > 2) {
+          var alreadySuggested = false;
+          for (k = 0; k < recs.length; k++) {
+            if (recs[k].type === 'suggest_link') {
+              var recIds = recs[k].items.map(function(it) { return it.id; });
+              if (recIds.indexOf(e.id) >= 0 && recIds.indexOf(a.id) >= 0) { alreadySuggested = true; break; }
+            }
+          }
+          if (!alreadySuggested) {
+            recs.push({
+              type: 'suggest_link',
+              severity: 'suggestion',
+              icon: '\uD83D\uDCAC',
+              title: 'Posible v\u00EDnculo: ' + e.address + ' \u2192 ' + a.name,
+              desc: 'El usuario de "' + a.name + '" coincide con el correo "' + e.address + '". Podr\u00EDan estar vinculados.',
+              items: [
+                { id: e.id, name: e.address, type: 'email' },
+                { id: a.id, name: a.name, type: 'account' }
+              ]
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // --- 6. Same username across different services ---
+  var userMap = {};
+  for (i = 0; i < VAULT.accounts.length; i++) {
+    a = VAULT.accounts[i];
+    if (a.username) {
+      key = a.username.toLowerCase().trim();
+      if (!userMap[key]) userMap[key] = [];
+      userMap[key].push(a);
+    }
+  }
+  var userKeys = Object.keys(userMap);
+  for (i = 0; i < userKeys.length; i++) {
+    var group = userMap[userKeys[i]];
+    if (group.length > 1) {
+      var ownerSet = {};
+      for (j = 0; j < group.length; j++) {
+        links = VAULT.links.filter(function(l) { return l.to === group[j].id && l.type === 'owner'; });
+        for (k = 0; k < links.length; k++) {
+          var owner = findNodeById(links[k].from);
+          if (owner && owner.type === 'email') ownerSet[owner.address] = true;
+        }
+      }
+      var ownerCount = Object.keys(ownerSet).length;
+      if (ownerCount > 1) {
+        recs.push({
+          type: 'same_username_multi_owner',
+          severity: 'warning',
+          icon: '\uD83D\uDC64',
+          title: 'Mismo usuario en varios servicios con due\u00F1os distintos',
+          desc: 'El usuario "' + userKeys[i] + '" se usa en ' + group.length + ' servicios pero est\u00E1n vinculados a ' +
+            ownerCount + ' correos diferentes. Revisa si deber\u00EDan estar bajo un mismo correo.',
+          items: group.map(function(g) { return { id: g.id, name: g.name, type: 'account' }; })
+        });
+      }
+    }
+  }
+
+  // --- 7. Emails with same domain could be consolidated ---
+  var domainMap = {};
+  for (i = 0; i < VAULT.emails.length; i++) {
+    e = VAULT.emails[i];
+    var parts = e.address.split('@');
+    if (parts.length === 2) {
+      key = parts[1].toLowerCase();
+      if (!domainMap[key]) domainMap[key] = [];
+      domainMap[key].push(e);
+    }
+  }
+  var domainKeys = Object.keys(domainMap);
+  for (i = 0; i < domainKeys.length; i++) {
+    var domain = domainKeys[i];
+    var emails = domainMap[domain];
+    if (emails.length > 1) {
+      var linkedAccounts = {};
+      for (j = 0; j < emails.length; j++) {
+        links = VAULT.links.filter(function(l) { return l.from === emails[j].id; });
+        for (k = 0; k < links.length; k++) {
+          var target = findNodeById(links[k].to);
+          if (target && target.type === 'account') {
+            if (!linkedAccounts[target.name]) linkedAccounts[target.name] = [];
+            linkedAccounts[target.name].push(emails[j].address);
+          }
+        }
+      }
+      var colliding = Object.keys(linkedAccounts).filter(function(n) { return linkedAccounts[n].length > 1; });
+      if (colliding.length > 0) {
+        recs.push({
+          type: 'domain_consolidation',
+          severity: 'suggestion',
+          icon: '\uD83D\uDCE8',
+          title: 'M\u00FAltiples correos en ' + domain,
+          desc: 'Tienes ' + emails.length + ' correos en ' + domain + ' (' +
+            emails.map(function(em) { return em.address; }).join(', ') +
+            '). ' + colliding.length + ' servicio(s) tienen cuentas en varios de estos correos. Considera consolidar.',
+          items: emails.map(function(em) { return { id: em.id, name: em.address, type: 'email' }; })
+        });
+      }
+    }
+  }
+
+  // Sort: warnings first, then suggestions, then info
+  recs.sort(function(a, b) {
+    var order = { warning: 0, suggestion: 1, info: 2 };
+    return (order[a.severity] || 99) - (order[b.severity] || 99);
+  });
+
+  return recs;
+}
+
+function renderRecommendations() {
+  var el = document.getElementById('rec-list');
+  var summary = document.getElementById('rec-summary');
+  var recs = generateRecommendations();
+
+  if (recs.length === 0) {
+    el.innerHTML = '<div class="rec-empty">\u2705 No se encontraron oportunidades de optimizaci\u00F3n. \u00A1Tu b\u00F3veda est\u00E1 en orden!</div>';
+    summary.textContent = '0 recomendaciones';
+    return;
+  }
+
+  var warningCount = 0, suggestionCount = 0, infoCount = 0;
+  for (var i = 0; i < recs.length; i++) {
+    if (recs[i].severity === 'warning') warningCount++;
+    else if (recs[i].severity === 'suggestion') suggestionCount++;
+    else infoCount++;
+  }
+
+  summary.textContent = warningCount + ' cr\u00EDtica' + (warningCount !== 1 ? 's' : '') +
+    (suggestionCount ? ', ' + suggestionCount + ' sugerencia' + (suggestionCount !== 1 ? 's' : '') : '') +
+    (infoCount ? ', ' + infoCount + ' aviso' + (infoCount !== 1 ? 's' : '') : '');
+
+  el.innerHTML = recs.map(function(rec) {
+    var sevClass = 'rec-severity-' + rec.severity;
+    var chipsHtml = rec.items.map(function(it) {
+      var label = it.name.length > 24 ? it.name.slice(0, 23) + '\u2026' : it.name;
+      return '<span class="rec-chip" data-id="' + it.id + '" data-type="' + it.type + '">' +
+        escapeHtml(label) + '</span>';
+    }).join('');
+    return '<div class="rec-card ' + sevClass + '">' +
+      '<div class="rec-card-header">' +
+        '<span class="rec-icon">' + rec.icon + '</span>' +
+        '<div><div class="rec-card-title">' + escapeHtml(rec.title) + '</div>' +
+        '<p class="rec-card-desc">' + escapeHtml(rec.desc) + '</p></div>' +
+      '</div>' +
+      (chipsHtml ? '<div class="rec-card-items">' + chipsHtml + '</div>' : '') +
+    '</div>';
+  }).join('');
+
+  el.querySelectorAll('.rec-chip').forEach(function(chip) {
+    chip.addEventListener('click', function() {
+      openDetailModal(chip.dataset.id, chip.dataset.type);
+    });
+  });
+
+  document.getElementById('btn-reanalyze').addEventListener('click', function() {
+    renderRecommendations();
+  });
+}

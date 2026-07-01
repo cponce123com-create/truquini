@@ -1811,24 +1811,7 @@ function renderTree(){
   };
 }
 
-// ============================================================
-// CATEGORIES VIEW  (CRUD de categorías)
-// ============================================================
-function renderCategories(){
-  // stub — placeholder por si el remoto lo definió
-  const el = document.getElementById('category-list');
-  if(!el) return;
-  el.innerHTML = '<div class="empty-state">Gestión de categorías próximamente.</div>';
-}
 
-// ============================================================
-// TODOS / PENDIENTES VIEW  (stub)
-// ============================================================
-function renderTodos(){
-  const el = document.getElementById('todo-list');
-  if(!el) return;
-  el.innerHTML = '<div class="empty-state">Lista de pendientes próximamente.</div>';
-}
 
 // ============================================================
 // RECOMMENDATIONS  (algoritmo inteligente de optimización)

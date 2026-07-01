@@ -1812,17 +1812,17 @@ function generateRecommendations() {
   const recs = [];
   var i, j, k, a, e, l, key, nameNorm, aNorm, emailUser, other, links, owners, linkedIds;
 
-  // --- 1. Duplicate / similar account names ---
-  var nameMap = {};
+  // --- 1. Duplicate account names (mismo nombre Y misma categoría) ---
+  var dupKeyMap = {};
   for (i = 0; i < VAULT.accounts.length; i++) {
     a = VAULT.accounts[i];
-    key = a.name.toLowerCase().trim();
-    if (!nameMap[key]) nameMap[key] = [];
-    nameMap[key].push(a);
+    key = a.name.toLowerCase().trim() + '|' + (a.category || 'otro').toLowerCase().trim();
+    if (!dupKeyMap[key]) dupKeyMap[key] = [];
+    dupKeyMap[key].push(a);
   }
-  var nameKeys = Object.keys(nameMap);
-  for (i = 0; i < nameKeys.length; i++) {
-    var group = nameMap[nameKeys[i]];
+  var dupKeys = Object.keys(dupKeyMap);
+  for (i = 0; i < dupKeys.length; i++) {
+    var group = dupKeyMap[dupKeys[i]];
     if (group.length > 1) {
       owners = [];
       for (j = 0; j < group.length; j++) {
@@ -1836,23 +1836,24 @@ function generateRecommendations() {
         type: 'duplicate_accounts',
         severity: 'warning',
         icon: '\u26A0\uFE0F',
-        title: 'M\u00FAltiples cuentas: "' + group[0].name + '"',
-        desc: 'Hay ' + group.length + ' cuentas con el mismo nombre. ' +
+        title: 'Cuentas duplicadas: "' + group[0].name + '"',
+        desc: 'Hay ' + group.length + ' cuentas con el mismo nombre y categor\u00EDa "' + cap(group[0].category || 'otro') + '". ' +
           (owners.length > 0 ? 'Est\u00E1n asociadas a: ' + owners.join(', ') + '. ' : '') +
-          'Considera consolidarlas en una sola cuenta.',
+          'Considera consolidarlas en una sola.',
         items: group.map(function(g) { return { id: g.id, name: g.name, type: 'account' }; })
       });
     }
   }
 
-  // --- 2. Similar names (substring) across accounts ---
+  // --- 2. Similar names (substring) across accounts (misma categoría) ---
   var accList = VAULT.accounts;
   for (i = 0; i < accList.length; i++) {
     for (j = i + 1; j < accList.length; j++) {
       nameNorm = accList[i].name.toLowerCase().trim();
       aNorm = accList[j].name.toLowerCase().trim();
       if (nameNorm !== aNorm && (nameNorm.includes(aNorm) || aNorm.includes(nameNorm))) {
-        // Check not already added
+        // Solo sugerir si son de la misma categoría
+        if ((accList[i].category || 'otro') !== (accList[j].category || 'otro')) continue;
         var already = false;
         for (k = 0; k < recs.length; k++) {
           if (recs[k].type === 'similar_accounts') {
@@ -1866,7 +1867,7 @@ function generateRecommendations() {
             severity: 'suggestion',
             icon: '\uD83D\uDD0D',
             title: 'Nombres similares: "' + accList[i].name + '" y "' + accList[j].name + '"',
-            desc: 'Estas cuentas tienen nombres parecidos. Verifica si son el mismo servicio y consolida.',
+            desc: 'Estas cuentas tienen nombres parecidos y son de la misma categor\u00EDa. Verifica si son el mismo servicio y consolida.',
             items: [
               { id: accList[i].id, name: accList[i].name, type: 'account' },
               { id: accList[j].id, name: accList[j].name, type: 'account' }

@@ -1206,6 +1206,8 @@ function openDetailModal(id, kind){
   }).join('') || `<div style="font-size:12.5px;color:var(--text-muted);">Sin conexiones aún.</div>`;
 
   const otherNodes = getAllNodes().filter(n=>n.id!==id);
+  const currentOwnerLink = VAULT.links.find(l=>l.to===id && l.type==='owner');
+  const currentOwnerId = currentOwnerLink ? currentOwnerLink.from : '';
 
   ensureTodos();
   const nodeTodos = VAULT.todos.filter(t=>t.linkedId===id);
@@ -1257,6 +1259,14 @@ function openDetailModal(id, kind){
         <label>URL de acceso</label>
         <input id="d-url" value="${escapeHtml(node.url||'')}">
       </div>
+      ${node.type==='account' ? `
+      <div class="field">
+        <label>Correo dueño</label>
+        <select id="d-owner">
+          <option value="">— Ninguno —</option>
+          ${VAULT.emails.map(e=>`<option value="${e.id}" ${currentOwnerId===e.id?'selected':''}>${escapeHtml(e.address)}</option>`).join('')}
+        </select>
+      </div>` : ''}
       <div class="field">
         <label>Notas</label>
         <textarea id="d-notes">${escapeHtml(node.notes||'')}</textarea>
@@ -1346,6 +1356,22 @@ function openDetailModal(id, kind){
         acc.username = overlay.querySelector('#d-username').value.trim();
         acc.category = overlay.querySelector('#d-category').value;
         acc.password = password; acc.url = url; acc.notes = notes;
+        // Actualizar correo dueño si cambió
+        const newOwnerId = overlay.querySelector('#d-owner').value;
+        const oldOwnerLink = VAULT.links.find(l=>l.to===id && l.type==='owner');
+        if(newOwnerId){
+          if(oldOwnerLink){
+            if(oldOwnerLink.from !== newOwnerId){
+              oldOwnerLink.from = newOwnerId;
+            }
+          } else {
+            VAULT.links.push({ id: uid(), from: newOwnerId, to: id, type: 'owner', label: '' });
+          }
+        } else {
+          if(oldOwnerLink){
+            VAULT.links = VAULT.links.filter(l=>l.id !== oldOwnerLink.id);
+          }
+        }
       } else {
         const em = VAULT.emails.find(x=>x.id===id);
         em.address = newName;

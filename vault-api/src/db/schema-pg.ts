@@ -17,6 +17,8 @@ export const vaultBlobs = pgTable(
     salt: text("salt").notNull(),
     iv: text("iv").notNull(),
     data: text("data").notNull(),
+    // Parámetros del KDF usados para derivar la clave (JSON). Null = PBKDF2 legado.
+    kdf: text("kdf"),
     version: integer("version").default(1).notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },

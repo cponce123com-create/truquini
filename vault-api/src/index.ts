@@ -24,6 +24,25 @@ for (const varName of requiredEnvVars) {
 
 const app = express();
 
+// Render (y la mayoría de PaaS) sitúan un proxy delante de la app. Sin esto,
+// express-rate-limit usa la IP del proxy y todos los clientes comparten límite.
+const trustProxy = process.env.TRUST_PROXY ?? "1";
+app.set(
+  "trust proxy",
+  trustProxy === "false"
+    ? false
+    : /^\d+$/.test(trustProxy)
+      ? Number(trustProxy)
+      : trustProxy
+);
+
+// Las respuestas de la API contienen material cifrado y metadatos de sesión:
+// no deben quedar en cachés intermedias.
+app.use("/api", (_req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  next();
+});
+
 // Security headers
 app.use(
   helmet({
@@ -54,7 +73,15 @@ app.use(cookieParser());
 app.use(express.json({ limit: "6mb" }));
 
 // Serve static frontend (single index.html at /)
-app.use(express.static("public"));
+app.use(
+  express.static("public", {
+    setHeaders(res, filePath) {
+      if (filePath.endsWith("index.html")) {
+        res.setHeader("Cache-Control", "no-store");
+      }
+    },
+  })
+);
 
 // Mount API routes
 app.use("/api/auth", authRoutes);

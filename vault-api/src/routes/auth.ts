@@ -11,6 +11,13 @@ const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET!;
 const BCRYPT_ROUNDS = 12;
 const JWT_EXPIRY = "30d";
+// bcrypt solo usa los primeros 72 bytes de la contraseña.
+const MAX_PASSWORD_BYTES = 72;
+// Hash de referencia para que un usuario inexistente tarde lo mismo que uno real.
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync(
+  "dummy-password-for-timing-only",
+  BCRYPT_ROUNDS
+);
 
 // POST /api/auth/register
 router.post(
@@ -49,6 +56,13 @@ router.post(
 
       if (password.length < 8) {
         res.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres" });
+        return;
+      }
+
+      if (Buffer.byteLength(password, "utf8") > MAX_PASSWORD_BYTES) {
+        res.status(400).json({
+          error: `La contraseña no puede superar los ${MAX_PASSWORD_BYTES} bytes`,
+        });
         return;
       }
 
@@ -115,6 +129,11 @@ router.post(
         return;
       }
 
+      if (Buffer.byteLength(password, "utf8") > MAX_PASSWORD_BYTES) {
+        res.status(401).json({ error: "Usuario o contraseña incorrectos" });
+        return;
+      }
+
       // Find user
       const result = await db
         .select()
@@ -125,6 +144,8 @@ router.post(
       const user = result[0];
 
       if (!user) {
+        // Comparación dummy para no revelar por tiempo si el usuario existe.
+        await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
         res.status(401).json({ error: "Usuario o contraseña incorrectos" });
         return;
       }
@@ -142,7 +163,10 @@ router.post(
         username: user.username,
       };
 
-      const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
+      const token = jwt.sign(payload, JWT_SECRET, {
+        expiresIn: JWT_EXPIRY,
+        algorithm: "HS256",
+      });
 
       // Set cookie
       res.cookie("token", token, {

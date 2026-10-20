@@ -40,7 +40,9 @@ export function authMiddleware(
   }
 
   try {
-    const payload = jwt.verify(token, JWT_SECRET!) as AuthPayload & {
+    const payload = jwt.verify(token, JWT_SECRET!, {
+      algorithms: ["HS256"],
+    }) as AuthPayload & {
       iat?: number;
       exp?: number;
     };
@@ -53,7 +55,7 @@ export function authMiddleware(
         const newToken = jwt.sign(
           { userId: payload.userId, username: payload.username, tokenIssuedAt: Date.now() },
           JWT_SECRET!,
-          { expiresIn: "30d" }
+          { expiresIn: "30d", algorithm: "HS256" }
         );
         res.cookie("token", newToken, {
           httpOnly: true,

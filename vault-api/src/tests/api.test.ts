@@ -9,6 +9,13 @@ const TEST_PASS = "StrongPass123!";
 
 let cookie = "";
 
+const TEST_KDF = JSON.stringify({
+  version: 2,
+  name: "PBKDF2",
+  hash: "SHA-256",
+  iterations: 600000,
+});
+
 describe("Auth API", () => {
   it("POST /api/auth/register — creates a user", async () => {
     const res = await request(app)
@@ -129,6 +136,8 @@ describe("Vault API", () => {
       salt: "a".repeat(32),
       iv: "b".repeat(24),
       data: "c".repeat(100),
+      kdf: TEST_KDF,
+      baseVersion: 0,
     };
 
     const res = await request(app)
@@ -138,6 +147,7 @@ describe("Vault API", () => {
       .expect(200);
 
     expect(res.body).toHaveProperty("updatedAt");
+    expect(res.body).toHaveProperty("version", 1);
   });
 
   it("PUT /api/vault — updates existing blob", async () => {
@@ -145,6 +155,8 @@ describe("Vault API", () => {
       salt: "d".repeat(32),
       iv: "e".repeat(24),
       data: "f".repeat(200),
+      kdf: TEST_KDF,
+      baseVersion: 1,
     };
 
     const res = await request(app)
@@ -154,6 +166,7 @@ describe("Vault API", () => {
       .expect(200);
 
     expect(res.body).toHaveProperty("updatedAt");
+    expect(res.body).toHaveProperty("version", 2);
   });
 
   it("GET /api/vault — returns blob after PUT", async () => {
@@ -165,8 +178,50 @@ describe("Vault API", () => {
     expect(res.body).toHaveProperty("salt");
     expect(res.body).toHaveProperty("iv");
     expect(res.body).toHaveProperty("data");
+    expect(res.body).toHaveProperty("kdf", TEST_KDF);
     expect(res.body).toHaveProperty("version");
     expect(res.body.version).toBe(2); // was version 1 after first PUT
+  });
+
+  it("PUT /api/vault — rejects a stale baseVersion with 409 and no overwrite", async () => {
+    const res = await request(app)
+      .put("/api/vault")
+      .set("Cookie", cookie)
+      .send({
+        salt: "g".repeat(32),
+        iv: "h".repeat(24),
+        data: "i".repeat(300),
+        kdf: TEST_KDF,
+        baseVersion: 1, // current server version is 2
+      })
+      .expect(409);
+
+    expect(res.body).toHaveProperty("version", 2);
+    expect(res.body.error).toContain("modificada en otra pestaña o dispositivo");
+
+    // La versión y el contenido deben seguir intactos.
+    const current = await request(app)
+      .get("/api/vault")
+      .set("Cookie", cookie)
+      .expect(200);
+
+    expect(current.body.version).toBe(2);
+    expect(current.body.data).toBe("f".repeat(200));
+  });
+
+  it("PUT /api/vault — rejects missing baseVersion", async () => {
+    const res = await request(app)
+      .put("/api/vault")
+      .set("Cookie", cookie)
+      .send({
+        salt: "a".repeat(32),
+        iv: "b".repeat(24),
+        data: "c".repeat(100),
+        kdf: TEST_KDF,
+      })
+      .expect(400);
+
+    expect(res.body.error).toContain("baseVersion es requerido");
   });
 
   it("PUT /api/vault — rejects oversized payload (JSON body > 6MB limit)", async () => {
@@ -174,6 +229,8 @@ describe("Vault API", () => {
       salt: "x".repeat(32),
       iv: "y".repeat(24),
       data: "z".repeat(7 * 1024 * 1024), // 7MB > 6MB JSON limit
+      kdf: TEST_KDF,
+      baseVersion: 2,
     };
 
     const res = await request(app)
@@ -189,6 +246,8 @@ describe("Vault API", () => {
       salt: "x".repeat(32),
       iv: "y".repeat(24),
       data: "z".repeat(5.2 * 1024 * 1024),
+      kdf: TEST_KDF,
+      baseVersion: 2,
     };
 
     const res = await request(app)

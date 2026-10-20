@@ -411,7 +411,7 @@
         <input type="text" id="login-username" placeholder="Usuario" autocomplete="username">
       </div>
       <div class="lock-input-row">
-        <input type="password" id="login-password" placeholder="Contraseña" autocomplete="current-password">
+        <input type="password" id="login-password" placeholder="Contraseña" autocomplete="current-password" maxlength="72">
       </div>
       <div class="lock-actions">
         <button class="btn btn-primary btn-block" id="btn-login">Iniciar sesión</button>
@@ -431,10 +431,10 @@
       <p id="lock-sub">Crea una contraseña maestra nueva, o carga un archivo .vault que ya tengas.</p>
 
       <div class="lock-input-row">
-        <input type="password" id="master-pass" placeholder="Contraseña maestra" autocomplete="new-password">
+        <input type="password" id="master-pass" placeholder="Contraseña maestra (mín. 12 caracteres)" autocomplete="off" maxlength="256" spellcheck="false">
       </div>
       <div class="lock-input-row hidden" id="confirm-row">
-        <input type="password" id="master-pass-confirm" placeholder="Confirma la contraseña maestra" autocomplete="new-password">
+        <input type="password" id="master-pass-confirm" placeholder="Confirma la contraseña maestra" autocomplete="off" maxlength="256" spellcheck="false">
       </div>
 
       <div class="lock-actions">
@@ -443,7 +443,7 @@
           📂 Cargar archivo .vault existente
           <input type="file" id="file-input" accept=".vault,.json" style="display:none;">
         </label>
-        <button class="btn btn-block hidden" id="btn-unlock" style="display:none;">Desbloquear</button>
+        <button class="btn btn-block" id="btn-unlock" style="display:none;">Desbloquear</button>
       </div>
 
       <div class="lock-error" id="lock-error"></div>
@@ -465,7 +465,7 @@
         <button class="btn btn-sm" id="btn-save">💾 Guardar</button>
         <button class="btn btn-sm" id="btn-export">⬇ Exportar .vault</button>
         <span id="sync-indicator" style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:4px;"></span>
-        <button class="btn btn-sm btn-danger" id="btn-lock">Bloquear</button>
+        <button class="btn btn-sm btn-danger" id="btn-lock" title="La bóveda se bloquea automáticamente tras 15 minutos de inactividad">Bloquear</button>
       </div>
     </div>
 

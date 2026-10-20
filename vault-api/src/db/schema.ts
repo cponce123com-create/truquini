@@ -24,6 +24,9 @@ export const vaultBlobs = sqliteTable(
     salt: text("salt").notNull(),
     iv: text("iv").notNull(),
     data: text("data").notNull(),
+    // Parámetros del KDF usados para derivar la clave (JSON). Es metadata
+    // pública: no contiene la contraseña ni la clave. Null = PBKDF2 legado.
+    kdf: text("kdf"),
     version: integer("version").default(1).notNull(),
     updatedAt: text("updated_at")
       .notNull()

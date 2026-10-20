@@ -7,8 +7,53 @@ document.getElementById('login-api-url').value = window.location.origin;
 let VAULT = { emails: [], accounts: [], links: [], categories: [], todos: [] };
 let MASTER_KEY = null;     // CryptoKey, never serialized
 let MASTER_SALT = null;    // Uint8Array, stored alongside ciphertext
+let MASTER_KDF = null;     // Parámetros PBKDF2 usados para derivar MASTER_KEY
 let isNewVault = true;
 let activeFileBaseName = "boveda";
+const MIN_MASTER_PASSWORD = 12;
+const MAX_MASTER_PASSWORD = 256;
+const API_TIMEOUT_MS = 15000;
+const AUTO_LOCK_MS = 15 * 60 * 1000;
+
+// KDF versionado. La versión 1 es la que usaban las bóvedas antiguas
+// (310.000 iteraciones, PBKDF2-HMAC-SHA256). La versión 2 usa 600.000,
+// el valor recomendado actualmente por OWASP para SHA-256. El número de
+// iteraciones se guarda con cada bóveda para poder migrarla sin romper
+// archivos ni blobs ya existentes.
+const KDF_LEGACY = Object.freeze({
+  version: 1,
+  name: "PBKDF2",
+  hash: "SHA-256",
+  iterations: 310000,
+});
+const KDF_CURRENT = Object.freeze({
+  version: 2,
+  name: "PBKDF2",
+  hash: "SHA-256",
+  iterations: 600000,
+});
+const KDF_MIN_ITERATIONS = 100000;
+const KDF_MAX_ITERATIONS = 2000000;
+
+// Estado del autosave: una sola cadena de guardados para evitar que dos
+// peticiones se completen fuera de orden y dejen una versión vieja.
+let saveChain = Promise.resolve();
+let autosavePending = 0;
+let autosaveFailed = false;
+let isLocking = false;
+let saveBlockedByConflict = false;
+let conflictServerVersion = null;
+
+// Auto-bloqueo por inactividad. El temporizador se reinicia con actividad
+// real del usuario; si la pestaña queda oculta, al volver se comprueba el
+// tiempo transcurrido (los navegadores pueden retrasar timers en background).
+let autoLockTimer = null;
+let lastActivityAt = Date.now();
+let lastActivityEventAt = 0;
+
+function emptyVault(){
+  return { emails: [], accounts: [], links: [], categories: [], todos: [] };
+}
 
 // ============================================================
 // PANEL TOGGLE STATE
@@ -56,21 +101,35 @@ window.addEventListener('load', () => {
 // ============================================================
 let API_URL = "";            // ej: https://api.onrender.com
 let LOGGED_IN_USER = null;  // username or null if offline
-let SERVER_BLOB = null;     // { salt, iv, data, version } from server
+let SERVER_BLOB = null;     // { salt, iv, data, kdf, version } from server
 
 async function apiCall(method, path, body) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   try {
     const opts = {
       method,
       headers: { "Content-Type": "application/json" },
       credentials: "include",
+      signal: controller.signal,
     };
     if (body) opts.body = JSON.stringify(body);
     const res = await fetch(`${API_URL}${path}`, opts);
     const data = await res.json().catch(() => ({}));
     return { ok: res.ok, status: res.status, data };
-  } catch {
-    return { ok: false, status: 0, data: { error: "No se pudo conectar al servidor" } };
+  } catch (err) {
+    const aborted = err && err.name === "AbortError";
+    return {
+      ok: false,
+      status: 0,
+      data: {
+        error: aborted
+          ? "El servidor tardó demasiado en responder. Intenta de nuevo."
+          : "No se pudo conectar al servidor",
+      },
+    };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -130,9 +189,12 @@ function getCategoryById(id){
 }
 function colorFor(catId){
   const c = getCategoryById(catId);
-  if(c) return c.color;
+  if(c) return safeColor(c.color, '#9aa1b4');
   const fallback = getCategoryById('otro');
-  return fallback ? fallback.color : '#9aa1b4';
+  return safeColor(fallback && fallback.color, '#9aa1b4');
+}
+function safeColor(value, fallback='#9aa1b4'){
+  return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value) ? value : fallback;
 }
 function nameForCategory(catId){
   const c = getCategoryById(catId);
@@ -144,17 +206,70 @@ function slugifyCategoryName(name){
     .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') || ('cat-'+Date.now());
 }
 
-function uid(){ return crypto.randomUUID(); }
+function uid(){
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+}
 
 // ============================================================
 // CRYPTO  (AES-256-GCM + PBKDF2)
 // ============================================================
-async function deriveKey(password, saltBytes){
+function parseKdf(raw){
+  // Sin metadata = bóveda anterior a la Fase 2: PBKDF2 legado.
+  if(raw === undefined || raw === null || raw === '') return { ...KDF_LEGACY };
+
+  let obj = raw;
+  if(typeof raw === 'string'){
+    try{
+      obj = JSON.parse(raw);
+    }catch{
+      throw new Error("Parámetros de cifrado no válidos");
+    }
+  }
+  if(!obj || typeof obj !== 'object'){
+    throw new Error("Parámetros de cifrado no válidos");
+  }
+
+  const version = obj.version;
+  const iterations = obj.iterations;
+  const name = obj.name || 'PBKDF2';
+  const hash = obj.hash || 'SHA-256';
+
+  // Límites estrictos: un blob manipulado no puede forzar un KDF con
+  // millones de iteraciones y bloquear el navegador (DoS).
+  if(
+    name !== 'PBKDF2' ||
+    hash !== 'SHA-256' ||
+    !Number.isInteger(version) || version < 1 || version > 999 ||
+    !Number.isInteger(iterations) ||
+    iterations < KDF_MIN_ITERATIONS ||
+    iterations > KDF_MAX_ITERATIONS
+  ){
+    throw new Error("Parámetros de cifrado no válidos");
+  }
+
+  return { version, name, hash, iterations };
+}
+
+function serializeKdf(kdf){
+  const params = parseKdf(kdf);
+  return JSON.stringify({
+    version: params.version,
+    name: params.name,
+    hash: params.hash,
+    iterations: params.iterations,
+  });
+}
+
+async function deriveKey(password, saltBytes, kdf = KDF_CURRENT){
+  const params = parseKdf(kdf || KDF_CURRENT);
   const enc = new TextEncoder();
   const baseKey = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
-  // 310,000 iteraciones para SHA-256 según recomendación OWASP 2023 (cheatsheet de almacenamiento de contraseñas)
   return crypto.subtle.deriveKey(
-    { name:"PBKDF2", salt: saltBytes, iterations: 310000, hash:"SHA-256" },
+    { name:"PBKDF2", salt: saltBytes, iterations: params.iterations, hash: params.hash },
     baseKey,
     { name:"AES-GCM", length:256 },
     false,
@@ -163,7 +278,13 @@ async function deriveKey(password, saltBytes){
 }
 
 function bufToB64(buf){
-  return btoa(String.fromCharCode(...new Uint8Array(buf)));
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
 }
 function b64ToBuf(b64){
   const bin = atob(b64);
@@ -172,28 +293,33 @@ function b64ToBuf(b64){
   return arr;
 }
 
-async function encryptVault(){
+async function encryptVault(plainJson){
+  if(!MASTER_KEY || !MASTER_SALT) throw new Error('Bóveda bloqueada');
+  const kdf = parseKdf(MASTER_KDF || KDF_CURRENT);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const enc = new TextEncoder();
-  const plaintext = enc.encode(JSON.stringify(VAULT));
+  const serialized = typeof plainJson === 'string' ? plainJson : JSON.stringify(VAULT);
+  const plaintext = enc.encode(serialized);
   const cipherBuf = await crypto.subtle.encrypt({name:"AES-GCM", iv}, MASTER_KEY, plaintext);
   return {
-    v: 1,
+    v: kdf.version,
     salt: bufToB64(MASTER_SALT),
     iv: bufToB64(iv),
-    data: bufToB64(cipherBuf)
+    data: bufToB64(cipherBuf),
+    kdf: serializeKdf(kdf)
   };
 }
 
 async function decryptVault(fileObj, password){
+  const kdf = parseKdf(fileObj.kdf);
   const salt = b64ToBuf(fileObj.salt);
   const iv = b64ToBuf(fileObj.iv);
-  const key = await deriveKey(password, salt);
+  const key = await deriveKey(password, salt, kdf);
   const cipherBuf = b64ToBuf(fileObj.data);
   const plainBuf = await crypto.subtle.decrypt({name:"AES-GCM", iv}, key, cipherBuf);
   const dec = new TextDecoder();
   const json = JSON.parse(dec.decode(plainBuf));
-  return { key, salt, data: json };
+  return { key, salt, data: json, kdf };
 }
 
 // ============================================================
@@ -215,21 +341,32 @@ function clearLoginError() { loginError.style.display = 'none'; }
 
 btnLogin.addEventListener('click', async () => {
   clearLoginError();
-  const url = loginApiUrl.value.trim().replace(/\/+$/, '');
-  // Validate API URL
+  const rawUrl = loginApiUrl.value.trim().replace(/\/+$/, '');
+  if (!rawUrl) { showLoginError('Ingresa la URL del servidor.'); return; }
+
+  let parsedUrl;
   try {
-    new URL(url);
+    parsedUrl = new URL(rawUrl);
   } catch {
     showLoginError('La URL del servidor no es válida. Debe ser una URL completa (ej: http://localhost:3000).');
     return;
   }
+
+  const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(parsedUrl.hostname);
+  if (parsedUrl.protocol !== 'https:' && !isLocal) {
+    showLoginError('Por seguridad, usa HTTPS para conectarte a un servidor remoto.');
+    return;
+  }
+  if (parsedUrl.username || parsedUrl.password || parsedUrl.pathname !== '/' || parsedUrl.search || parsedUrl.hash) {
+    showLoginError('Ingresa solo el origen del servidor, sin rutas, credenciales ni parámetros.');
+    return;
+  }
+
   const user = loginUsername.value.trim();
   const pass = loginPassword.value;
-
-  if (!url) { showLoginError('Ingresa la URL del servidor.'); return; }
   if (!user || !pass) { showLoginError('Ingresa usuario y contraseña.'); return; }
 
-  API_URL = url;
+  API_URL = parsedUrl.origin;
   btnLogin.disabled = true;
   btnLogin.textContent = 'Iniciando sesión...';
 
@@ -259,6 +396,7 @@ btnLogin.addEventListener('click', async () => {
       salt: SERVER_BLOB.salt,
       iv: SERVER_BLOB.iv,
       data: SERVER_BLOB.data,
+      kdf: SERVER_BLOB.kdf,
     };
     isNewVault = false;
     confirmRow.classList.add('hidden');
@@ -380,8 +518,8 @@ fileInput.addEventListener('change', (e)=>{
 btnCreateNew.addEventListener('click', ()=>{
   if(confirmRow.classList.contains('hidden')){
     // first click: ask to confirm password
-    if(!masterPassInput.value || masterPassInput.value.length < 6){
-      lockError.textContent = "Usa al menos 6 caracteres para tu contraseña maestra.";
+    if(!masterPassInput.value || masterPassInput.value.length < MIN_MASTER_PASSWORD){
+      lockError.textContent = `Usa al menos ${MIN_MASTER_PASSWORD} caracteres para tu contraseña maestra.`;
       return;
     }
     confirmRow.classList.remove('hidden');
@@ -394,6 +532,10 @@ btnCreateNew.addEventListener('click', ()=>{
     lockError.textContent = "Las contraseñas no coinciden.";
     return;
   }
+  if(masterPassInput.value.length > MAX_MASTER_PASSWORD){
+    lockError.textContent = `La contraseña maestra no puede superar los ${MAX_MASTER_PASSWORD} caracteres.`;
+    return;
+  }
   createNewVault(masterPassInput.value);
 });
 
@@ -403,11 +545,37 @@ btnUnlock.addEventListener('click', async ()=>{
   btnUnlock.disabled = true;
   btnUnlock.textContent = "Desbloqueando...";
   try{
-    const { key, salt, data } = await decryptVault(pendingFileObj, pw);
-    MASTER_KEY = key;
-    MASTER_SALT = salt;
-    VAULT = data;
+    const decrypted = await decryptVault(pendingFileObj, pw);
+    let nextKey = decrypted.key;
+    let nextSalt = decrypted.salt;
+    let nextKdf = decrypted.kdf;
+    let migratedKdf = false;
+
+    // Migración perezosa: si la bóveda usa el KDF legado, la clave se
+    // vuelve a derivar con el KDF actual y una sal nueva. El guardado
+    // posterior reemplaza el blob; si falla, el blob viejo sigue siendo
+    // válido y se puede reintentar en el próximo desbloqueo.
+    if (nextKdf.version < KDF_CURRENT.version) {
+      nextSalt = crypto.getRandomValues(new Uint8Array(16));
+      nextKey = await deriveKey(pw, nextSalt, KDF_CURRENT);
+      nextKdf = { ...KDF_CURRENT };
+      migratedKdf = true;
+    }
+
+    MASTER_KEY = nextKey;
+    MASTER_SALT = nextSalt;
+    MASTER_KDF = nextKdf;
+    VAULT = decrypted.data;
     enterApp();
+
+    if (migratedKdf) {
+      if (LOGGED_IN_USER) {
+        autosave();
+        showCopyFeedback("🔐 Cifrado actualizado; guardando en el servidor…");
+      } else {
+        showCopyFeedback("🔐 Cifrado actualizado; exporta el .vault para conservarlo");
+      }
+    }
   }catch(err){
     lockError.textContent = "Contraseña incorrecta o archivo dañado.";
     btnUnlock.disabled = false;
@@ -417,8 +585,9 @@ btnUnlock.addEventListener('click', async ()=>{
 
 async function createNewVault(password){
   MASTER_SALT = crypto.getRandomValues(new Uint8Array(16));
-  MASTER_KEY = await deriveKey(password, MASTER_SALT);
-  VAULT = { emails: [], accounts: [], links: [], categories: [], todos: [] };
+  MASTER_KDF = { ...KDF_CURRENT };
+  MASTER_KEY = await deriveKey(password, MASTER_SALT, MASTER_KDF);
+  VAULT = emptyVault();
   isNewVault = true;
   enterApp();
 }
@@ -433,51 +602,181 @@ function enterApp(){
   const shapeWasValid = ensureVaultShape();
   ensureCategories();
   ensureTodos();
-  // Update sync indicator
-  const syncEl = document.getElementById('sync-indicator');
+  // La contraseña maestra ya no hace falta en el DOM una vez derivada la clave.
+  masterPassInput.value = '';
+  masterPassConfirm.value = '';
+  confirmRow.classList.add('hidden');
+  lockError.textContent = '';
+  btnUnlock.disabled = false;
+  btnUnlock.textContent = 'Desbloquear';
+  autosaveFailed = false;
+  saveBlockedByConflict = false;
+  conflictServerVersion = null;
+  isLocking = false;
+  lastActivityAt = Date.now();
+  lastActivityEventAt = 0;
   if (LOGGED_IN_USER) {
-    syncEl.textContent = `☁️ ${LOGGED_IN_USER}`;
-    syncEl.title = 'Sincronizado con el servidor';
+    setSyncStatus(`☁️ ${LOGGED_IN_USER}`, 'Sincronizado con el servidor', 'ok');
   } else {
-    syncEl.textContent = '💻 Local';
-    syncEl.title = 'Modo local (sin sincronización)';
+    setSyncStatus('💻 Local', 'Modo local (sin sincronización)', '');
   }
   lockScreen.style.display='none';
   appScreen.style.display='flex';
   renderAll();
+  scheduleAutoLock();
   if(!shapeWasValid){
     showCopyFeedback("⚠️ El archivo tenía un formato inesperado, se abrió de forma parcial");
   }
 }
 
-document.getElementById('btn-lock').addEventListener('click', async ()=>{
-  if(!confirm("¿Bloquear la bóveda? Asegúrate de haber exportado los cambios recientes antes de continuar.")) return;
-  MASTER_KEY=null; MASTER_SALT=null; VAULT={emails:[],accounts:[],links:[],categories:[],todos:[]};
+function clearSensitiveDom(){
+  // Los modales se añaden a document.body, fuera de #app-screen: hay que
+  // eliminarlos explícitamente para que no quede una contraseña visible.
+  document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
+  ['card-grid','stats-row','todo-list','category-list','rec-list','graph-legend'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.replaceChildren();
+  });
+  const filter = document.getElementById('filter-category');
+  if(filter) filter.innerHTML = '<option value="">Todas las categorías</option>';
+  const search = document.getElementById('search-input');
+  if(search) search.value = '';
+  const treeSearch = document.getElementById('tree-search');
+  if(treeSearch) treeSearch.value = '';
+  if(typeof d3 !== 'undefined'){
+    d3.select('#graph-svg').selectAll('*').remove();
+    d3.select('#tree-svg').selectAll('*').remove();
+  }
+  const feedback = document.getElementById('copy-feedback');
+  if(feedback){ feedback.classList.remove('show'); feedback.textContent=''; }
+  setSyncStatus('🔒 Bloqueado', 'Bóveda bloqueada', '');
+}
+
+function lockVault(){
+  clearAutoLock();
+  MASTER_KEY = null;
+  MASTER_SALT = null;
+  MASTER_KDF = null;
+  SERVER_BLOB = null;
+  pendingFileObj = null;
+  VAULT = emptyVault();
+  clearSensitiveDom();
+  masterPassInput.value = '';
+  masterPassConfirm.value = '';
+  lockError.textContent = '';
+  confirmRow.classList.add('hidden');
+  btnUnlock.disabled = false;
+  btnUnlock.textContent = 'Desbloquear';
   appScreen.style.display='none';
   // If was logged in, go back to login screen; otherwise to lock screen
   if (LOGGED_IN_USER) {
     loginScreen.style.display = 'flex';
     lockScreen.style.display = 'none';
     loginPassword.value = '';
+    clearLoginError();
   } else {
     lockScreen.style.display='flex';
-    masterPassInput.value=''; masterPassConfirm.value='';
-    confirmRow.classList.add('hidden');
     btnCreateNew.style.display='block'; btnCreateNew.textContent='Crear bóveda nueva';
     btnUnlock.style.display='none';
     fileLabel.style.display='flex';
     lockTitle.textContent='Bóveda de credenciales';
     lockSub.textContent='Crea una contraseña maestra nueva, o carga un archivo .vault que ya tengas.';
-    lockError.textContent='';
   }
+  isLocking = false;
+}
+
+function clearAutoLock(){
+  if (autoLockTimer !== null) {
+    clearTimeout(autoLockTimer);
+    autoLockTimer = null;
+  }
+}
+
+function scheduleAutoLock(){
+  clearAutoLock();
+  if (!MASTER_KEY || isLocking) return;
+  const remaining = AUTO_LOCK_MS - (Date.now() - lastActivityAt);
+  autoLockTimer = setTimeout(checkAutoLock, Math.max(1000, remaining + 100));
+}
+
+function checkAutoLock(){
+  if (autoLockTimer !== null) {
+    clearTimeout(autoLockTimer);
+    autoLockTimer = null;
+  }
+  if (!MASTER_KEY || isLocking) return;
+  if (Date.now() - lastActivityAt >= AUTO_LOCK_MS) {
+    requestLock('inactividad', { confirm: false });
+    return;
+  }
+  scheduleAutoLock();
+}
+
+function recordActivity(){
+  if (!MASTER_KEY || isLocking) return;
+  if (document.visibilityState === 'hidden') return;
+  const now = Date.now();
+  // mousemove/scroll pueden disparar cientos de eventos por segundo.
+  if (now - lastActivityEventAt < 1000) return;
+  lastActivityEventAt = now;
+  lastActivityAt = now;
+  scheduleAutoLock();
+}
+
+async function requestLock(reason = 'manual', options = {}){
+  if (isLocking) return;
+  if (options.confirm !== false) {
+    clearAutoLock();
+    if (!confirm("¿Bloquear la bóveda? Si hay cambios sin guardar, expórtalos antes de continuar.")) {
+      lastActivityAt = Date.now();
+      scheduleAutoLock();
+      return;
+    }
+  }
+
+  isLocking = true;
+  clearAutoLock();
+  if (reason === 'inactividad') {
+    setSyncStatus('🔒 Bloqueando por inactividad…', 'La sesión se bloquea tras 15 minutos sin actividad', 'pending');
+  }
+
+  try {
+    if (autosavePending > 0) {
+      setSyncStatus('⏳ Guardando antes de bloquear…', 'Esperando a que terminen los guardados pendientes', 'pending');
+      appScreen.style.pointerEvents = 'none';
+      // No bloquear hasta que la cola de guardados termine, para que una
+      // petición vieja no sobrescriba la bóveda nueva al volver a entrar.
+      while (autosavePending > 0) {
+        await saveChain;
+      }
+    }
+  } finally {
+    appScreen.style.pointerEvents = '';
+    lockVault();
+  }
+}
+
+document.getElementById('btn-lock').addEventListener('click', () => {
+  requestLock('manual');
 });
+
+// La actividad se registra solo con la bóveda desbloqueada. `visibilitychange`
+// fuerza una comprobación al volver a la pestaña, porque los temporizadores
+// pueden retrasarse cuando el navegador está en segundo plano.
+['pointerdown', 'keydown', 'touchstart', 'wheel'].forEach((eventName) => {
+  window.addEventListener(eventName, recordActivity, { passive: true });
+});
+window.addEventListener('mousemove', recordActivity, { passive: true });
+document.addEventListener('scroll', recordActivity, { passive: true, capture: true });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') checkAutoLock();
+});
+window.addEventListener('focus', checkAutoLock);
 
 // ============================================================
 // EXPORT & SYNC
 // ============================================================
-document.getElementById('btn-export').addEventListener('click', async ()=>{
-  const fileObj = await encryptVault();
-  // Download locally
+function downloadVaultFile(fileObj){
   const blob = new Blob([JSON.stringify(fileObj)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -489,20 +788,28 @@ document.getElementById('btn-export').addEventListener('click', async ()=>{
   a.remove();
   URL.revokeObjectURL(url);
   showCopyFeedback("Archivo .vault descargado");
+}
 
-  // Sync to server if logged in
-  if (LOGGED_IN_USER) {
-    const syncRes = await apiCall('PUT', '/api/vault', {
-      salt: fileObj.salt,
-      iv: fileObj.iv,
-      data: fileObj.data,
-    });
-    if (syncRes.ok) {
-      SERVER_BLOB = { salt: fileObj.salt, iv: fileObj.iv, data: fileObj.data, version: SERVER_BLOB?.version || 1 };
-      showCopyFeedback("✅ Sincronizado con el servidor");
-    } else {
-      showCopyFeedback("⚠️ No se pudo sincronizar con el servidor");
+document.getElementById('btn-export').addEventListener('click', async ()=>{
+  if (isLocking) return;
+  try {
+    const fileObj = await encryptVault();
+    downloadVaultFile(fileObj);
+
+    // Sync to server if logged in and there is no unresolved conflict.
+    if (LOGGED_IN_USER && !saveBlockedByConflict) {
+      try{
+        await enqueueSave(() => syncVault(fileObj));
+        showCopyFeedback("✅ Sincronizado con el servidor");
+      }catch(err){
+        if(err && err.code === 'CONFLICT') showConflictModal({ version: conflictServerVersion });
+        else showCopyFeedback("⚠️ No se pudo sincronizar: " + (err.message || "error desconocido"));
+      }
+    } else if (saveBlockedByConflict) {
+      showCopyFeedback("Copia descargada. Resuelve el conflicto antes de sincronizar.");
     }
+  } catch (err) {
+    showCopyFeedback("⚠️ No se pudo exportar: " + (err.message || "error desconocido"));
   }
 });
 
@@ -513,55 +820,205 @@ function showCopyFeedback(msg){
   setTimeout(()=>el.classList.remove('show'), 1600);
 }
 
+function setSyncStatus(text, title, state){
+  const el = document.getElementById('sync-indicator');
+  if(!el) return;
+  el.textContent = text;
+  el.title = title || text;
+  if(state) el.dataset.state = state;
+  else delete el.dataset.state;
+  el.style.color = state === 'error'
+    ? 'var(--warning)'
+    : state === 'pending'
+      ? 'var(--text-secondary)'
+      : 'var(--text-muted)';
+}
+
+function makeConflictError(){
+  const err = new Error("La bóveda cambió en otro dispositivo; hay un conflicto de versión");
+  err.code = 'CONFLICT';
+  return err;
+}
+
+function handleConflict(data = {}){
+  saveBlockedByConflict = true;
+  if (Number.isInteger(data.version)) conflictServerVersion = data.version;
+  autosaveFailed = true;
+  setSyncStatus(
+    '⚠️ Conflicto',
+    'La bóveda cambió en otro dispositivo. Exporta tu copia local antes de recargar.',
+    'error'
+  );
+  if (!isLocking) showConflictModal(data);
+}
+
+function showConflictModal(data = {}){
+  if (document.querySelector('.conflict-modal')) return;
+  const serverVersion = Number.isInteger(data.version) ? data.version : null;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay conflict-modal';
+  overlay.innerHTML =
+    '<div class="modal" style="max-width:520px;">' +
+      '<h2 style="color:var(--warning);margin-bottom:12px;">⚠️ Conflicto de versión</h2>' +
+      '<p style="font-size:13px;color:var(--text-secondary);margin:0 0 12px;">' +
+        'La bóveda fue modificada en otra pestaña o dispositivo. Para no perder cambios, ' +
+        'esta copia local no se guardó en el servidor.' +
+      '</p>' +
+      (serverVersion !== null
+        ? '<p style="font-size:12.5px;color:var(--text-muted);margin:0 0 12px;">Versión actual en el servidor: <strong>' + serverVersion + '</strong></p>'
+        : '') +
+      '<p style="font-size:12.5px;color:var(--text-secondary);margin:0 0 16px;">' +
+        'Puedes descargar tu copia local para conservarla, o recargar la versión del servidor ' +
+        'y descartar los cambios locales.' +
+      '</p>' +
+      '<div class="modal-actions">' +
+        '<button class="btn" id="cf-export">Descargar mi copia</button>' +
+        '<button class="btn btn-danger" id="cf-reload">Recargar del servidor</button>' +
+        '<button class="btn btn-primary" id="cf-close">Seguir sin guardar</button>' +
+      '</div>' +
+    '</div>';
+
+  document.body.appendChild(overlay);
+
+  overlay.querySelector('#cf-export').addEventListener('click', async () => {
+    try{
+      const fileObj = await encryptVault();
+      downloadVaultFile(fileObj);
+    }catch(err){
+      showCopyFeedback("⚠️ No se pudo exportar: " + (err.message || "error desconocido"));
+    }
+  });
+
+  overlay.querySelector('#cf-reload').addEventListener('click', () => {
+    if (!confirm('Se descartarán los cambios locales que no se pudieron guardar. ¿Recargar la versión del servidor?')) return;
+    // El usuario decidió descartar los cambios locales de forma explícita:
+    // evitar el aviso de beforeunload por el conflicto ya reconocido.
+    autosaveFailed = false;
+    autosavePending = 0;
+    window.location.reload();
+  });
+
+  overlay.querySelector('#cf-close').addEventListener('click', () => overlay.remove());
+}
+
+async function syncVault(fileObj){
+  if (saveBlockedByConflict) throw makeConflictError();
+
+  // La versión que el cliente cree tener es la base de la escritura
+  // condicional. 0 significa "no hay blob en el servidor todavía".
+  const baseVersion = Number.isInteger(SERVER_BLOB?.version) ? SERVER_BLOB.version : 0;
+  const syncRes = await apiCall('PUT', '/api/vault', {
+    salt: fileObj.salt,
+    iv: fileObj.iv,
+    data: fileObj.data,
+    kdf: fileObj.kdf,
+    baseVersion,
+  });
+
+  if (syncRes.status === 409) {
+    handleConflict(syncRes.data || {});
+    throw makeConflictError();
+  }
+
+  if(!syncRes.ok){
+    const err = new Error(syncRes.data?.error || `HTTP ${syncRes.status}`);
+    err.status = syncRes.status;
+    throw err;
+  }
+
+  SERVER_BLOB = {
+    salt: fileObj.salt,
+    iv: fileObj.iv,
+    data: fileObj.data,
+    kdf: fileObj.kdf,
+    version: syncRes.data?.version ?? (baseVersion + 1),
+    updatedAt: syncRes.data?.updatedAt,
+  };
+  return syncRes;
+}
+
+// Serializa todos los guardados. Cada tarea se ejecuta después de la anterior;
+// así una respuesta lenta no puede sobrescribir un estado más nuevo.
+function enqueueSave(task){
+  if(isLocking) return Promise.reject(new Error('La bóveda se está bloqueando'));
+  autosavePending++;
+  setSyncStatus('⏳ Guardando…', 'Guardando cambios en el servidor', 'pending');
+  const run = saveChain.then(task);
+  saveChain = run.then(
+    () => {
+      autosavePending = Math.max(0, autosavePending - 1);
+      autosaveFailed = false;
+      if(autosavePending === 0){
+        if(!MASTER_KEY) setSyncStatus('🔒 Bloqueado', 'Bóveda bloqueada', '');
+        else if(LOGGED_IN_USER) setSyncStatus(`☁️ ${LOGGED_IN_USER}`, 'Sincronizado con el servidor', 'ok');
+        else setSyncStatus('💻 Local', 'Modo local (sin sincronización)', '');
+      }
+    },
+    (err) => {
+      autosavePending = Math.max(0, autosavePending - 1);
+      autosaveFailed = true;
+      if(err && err.code === 'CONFLICT'){
+        setSyncStatus(
+          '⚠️ Conflicto',
+          'La bóveda cambió en otro dispositivo. Exporta tu copia local antes de recargar.',
+          'error'
+        );
+      } else if(MASTER_KEY){
+        setSyncStatus('⚠️ Sin guardar', 'No se pudieron guardar los cambios. Exporta la bóveda.', 'error');
+      } else {
+        setSyncStatus('🔒 Bloqueado', 'Bóveda bloqueada', '');
+      }
+      console.error('Guardado falló:', err);
+      throw err;
+    }
+  ).catch(() => {});
+  return run;
+}
+
 // ============================================================
 // AUTOSAVE: persist every change (add/edit/delete/link) to the
 // server immediately, instead of only on "Exportar .vault".
 // ============================================================
-async function autosave(){
-  if(!LOGGED_IN_USER) return; // local-only mode: nothing to sync
-  try{
-    const fileObj = await encryptVault();
-    const syncRes = await apiCall('PUT', '/api/vault', {
-      salt: fileObj.salt,
-      iv: fileObj.iv,
-      data: fileObj.data,
-    });
-    if(syncRes.ok){
-      SERVER_BLOB = { salt: fileObj.salt, iv: fileObj.iv, data: fileObj.data, version: SERVER_BLOB?.version || 1 };
-    } else {
-      console.error("Autosave falló:", syncRes.data?.error || syncRes.status);
-    }
-  }catch(err){
-    console.error("Autosave error:", err);
-  }
+function autosave(){
+  if(!LOGGED_IN_USER || isLocking || saveBlockedByConflict) return; // local-only, locking or unresolved conflict: nothing to sync
+  // Capturamos el estado actual antes de encolar. Si mientras tanto se bloquea
+  // la bóveda, la tarea no puede cifrar un VAULT vacío por accidente.
+  const snapshot = JSON.stringify(VAULT);
+  enqueueSave(async () => {
+    if(!MASTER_KEY || !MASTER_SALT) throw new Error('Bóveda bloqueada');
+    const fileObj = await encryptVault(snapshot);
+    await syncVault(fileObj);
+  }).catch(() => {});
 }
+
+window.addEventListener('beforeunload', (event)=>{
+  if(LOGGED_IN_USER && (autosavePending > 0 || autosaveFailed)){
+    event.preventDefault();
+    event.returnValue = '';
+  }
+});
 
 // Save/sync to server
 document.getElementById('btn-save').addEventListener('click', async () => {
+  if (isLocking) return;
   if (!LOGGED_IN_USER) {
     showCopyFeedback("💻 Modo local — no hay servidor para guardar");
     return;
   }
+  if (saveBlockedByConflict) {
+    showConflictModal({ version: conflictServerVersion });
+    return;
+  }
   try {
-    const fileObj = await encryptVault();
-    const syncRes = await apiCall('PUT', '/api/vault', {
-      salt: fileObj.salt,
-      iv: fileObj.iv,
-      data: fileObj.data,
+    await enqueueSave(async () => {
+      const fileObj = await encryptVault();
+      await syncVault(fileObj);
     });
-    if (syncRes.ok) {
-      SERVER_BLOB = {
-        salt: fileObj.salt,
-        iv: fileObj.iv,
-        data: fileObj.data,
-        version: SERVER_BLOB?.version || 1,
-      };
-      showCopyFeedback("✅ Guardado en el servidor");
-    } else {
-      showCopyFeedback("⚠️ Error al guardar: " + (syncRes.data?.error || "desconocido"));
-    }
+    showCopyFeedback("✅ Guardado en el servidor");
   } catch (err) {
-    showCopyFeedback("⚠️ Error al conectar con el servidor");
+    if (err && err.code === 'CONFLICT') showConflictModal({ version: conflictServerVersion });
+    else showCopyFeedback("⚠️ Error al guardar: " + (err.message || "desconocido"));
   }
 });
 
@@ -657,9 +1114,9 @@ function renderList(){
     const sub1 = isEmail ? 'Correo' : (item.username||'—');
     const linkedCount = countLinksFor(item.id);
     return `
-      <div class="acc-card" data-id="${item.id}" data-kind="${item.type}">
+      <div class="acc-card" data-id="${escapeHtml(item.id)}" data-kind="${item.type}">
         <div class="acc-card-top">
-          <div class="acc-card-name"><span class="swatch" style="background:${col}"></span>${escapeHtml(label)}</div>
+          <div class="acc-card-name"><span class="swatch" style="background:${safeColor(col)}"></span>${escapeHtml(label)}</div>
           <span class="badge">${escapeHtml(nameForCategory(cat))}</span>
         </div>
         <div class="acc-card-row"><span>Usuario</span><span>${escapeHtml(sub1)}</span></div>
@@ -949,7 +1406,7 @@ function renderCategories(){
     return `
       <div class="cat-card" data-id="${escapeHtml(c.id)}">
         <div class="cat-card-top">
-          <span class="swatch" style="background:${c.color}"></span>
+          <span class="swatch" style="background:${safeColor(c.color)}"></span>
           <span class="cat-card-name">${escapeHtml(c.name)}</span>
         </div>
         <div class="cat-card-count">${n} cuenta${n===1?'':'s'} usando esta categoría</div>
@@ -975,7 +1432,7 @@ function openCategoryModal(existingId){
   const existing = existingId ? getCategoryById(existingId) : null;
   const overlay = document.createElement('div');
   overlay.className='modal-overlay';
-  const defaultColor = existing ? existing.color : '#5b8cff';
+  const defaultColor = safeColor(existing ? existing.color : '#5b8cff');
   overlay.innerHTML = `
     <div class="modal">
       <h2>${existing ? 'Editar categoría' : 'Nueva categoría'}</h2>
@@ -986,7 +1443,7 @@ function openCategoryModal(existingId){
       <div class="field">
         <label>Color</label>
         <div style="display:flex;align-items:center;gap:10px;">
-          <input id="c-color" type="color" value="${defaultColor}" style="width:46px;height:36px;padding:2px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);">
+          <input id="c-color" type="color" value="${safeColor(defaultColor)}" style="width:46px;height:36px;padding:2px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);">
           <span style="font-size:12.5px;color:var(--text-muted);">Color que se usa en las tarjetas y mapas</span>
         </div>
       </div>
@@ -1071,7 +1528,7 @@ function openAddModal(){
       <div class="field-row">
         <div class="field">
           <label>Usuario / correo de acceso</label>
-          <input id="m-username" placeholder="usuario@dominio.com">
+          <input id="m-username" placeholder="usuario@dominio.com" autocomplete="off">
         </div>
         <div class="field">
           <label>Categoría</label>
@@ -1083,13 +1540,13 @@ function openAddModal(){
       <div class="field">
         <label>Contraseña</label>
         <div class="pw-row">
-          <input id="m-password" type="password">
+          <input id="m-password" type="password" autocomplete="off">
           <button type="button" class="pw-toggle" data-target="m-password">👁</button>
         </div>
       </div>
       <div class="field">
         <label>URL de acceso (opcional)</label>
-        <input id="m-url" placeholder="https://dashboard.render.com">
+        <input id="m-url" placeholder="https://dashboard.render.com" autocomplete="off">
       </div>
       <div class="field" id="m-owner-field">
         <label>Correo dueño (opcional)</label>
@@ -1108,7 +1565,7 @@ function openAddModal(){
   document.body.appendChild(overlay);
 
   const ownerSelect = overlay.querySelector('#m-owner');
-  VAULT.emails.forEach(e=> ownerSelect.innerHTML += `<option value="${e.id}">${escapeHtml(e.address)}</option>`);
+  VAULT.emails.forEach(e=> ownerSelect.innerHTML += `<option value="${escapeHtml(e.id)}">${escapeHtml(e.address)}</option>`);
 
   const typeSelect = overlay.querySelector('#m-type');
   const nameLabel = overlay.querySelector('#m-name-label');
@@ -1201,7 +1658,7 @@ function openDetailModal(id, kind){
     const typeLabel = l.type==='owner' ? 'dueño de' : (l.label || 'vinculado');
     return `<div class="rel-item">
       <span>${dirLabel} ${escapeHtml(otherName)} <span style="color:var(--text-muted)">· ${escapeHtml(typeLabel)}</span></span>
-      <button class="x" data-link-id="${l.id}" title="Quitar conexión">✕</button>
+      <button class="x" data-link-id="${escapeHtml(l.id)}" title="Quitar conexión">✕</button>
     </div>`;
   }).join('') || `<div style="font-size:12.5px;color:var(--text-muted);">Sin conexiones aún.</div>`;
 
@@ -1218,7 +1675,7 @@ function openDetailModal(id, kind){
         <span class="${t.resolved?'todo-card resolved':''}" style="background:none;border:none;padding:0;">
           ${t.resolved?'✅':'🟡'} ${escapeHtml(t.title)}
         </span>
-        <button class="x" data-todo-id="${t.id}" title="Editar pendiente">✎</button>
+        <button class="x" data-todo-id="${escapeHtml(t.id)}" title="Editar pendiente">✎</button>
       </div>`).join('');
 
   overlay.innerHTML = `
@@ -1233,7 +1690,7 @@ function openDetailModal(id, kind){
       <div class="field-row">
         <div class="field">
           <label>Usuario</label>
-          <input id="d-username" value="${escapeHtml(node.username||'')}">
+          <input id="d-username" value="${escapeHtml(node.username||'')}" autocomplete="off">
         </div>
         <div class="field">
           <label>Categoría</label>
@@ -1251,20 +1708,20 @@ function openDetailModal(id, kind){
       <div class="field">
         <label>Contraseña</label>
         <div class="pw-row">
-          <input id="d-password" type="password" value="${escapeHtml(node.password||'')}">
+          <input id="d-password" type="password" value="${escapeHtml(node.password||'')}" autocomplete="off">
           <button type="button" class="pw-toggle" data-target="d-password">👁</button>
         </div>
       </div>
       <div class="field">
         <label>URL de acceso</label>
-        <input id="d-url" value="${escapeHtml(node.url||'')}">
+        <input id="d-url" value="${escapeHtml(node.url||'')}" autocomplete="off">
       </div>
       ${node.type==='account' ? `
       <div class="field">
         <label>Correo dueño</label>
         <select id="d-owner">
           <option value="">— Ninguno —</option>
-          ${VAULT.emails.map(e=>`<option value="${e.id}" ${currentOwnerId===e.id?'selected':''}>${escapeHtml(e.address)}</option>`).join('')}
+          ${VAULT.emails.map(e=>`<option value="${escapeHtml(e.id)}" ${currentOwnerId===e.id?'selected':''}>${escapeHtml(e.address)}</option>`).join('')}
         </select>
       </div>` : ''}
       <div class="field">
@@ -1278,7 +1735,7 @@ function openDetailModal(id, kind){
         <div class="add-rel-row">
           <select id="rel-target">
             <option value="">Vincular con...</option>
-            ${otherNodes.map(n=>`<option value="${n.id}">${escapeHtml(n.type==='email'?n.address:n.name)}</option>`).join('')}
+            ${otherNodes.map(n=>`<option value="${escapeHtml(n.id)}">${escapeHtml(n.type==='email'?n.address:n.name)}</option>`).join('')}
           </select>
           <input id="rel-label" placeholder="Etiqueta (ej: mismo teléfono)">
           <button class="btn btn-sm" id="rel-add">Vincular</button>
@@ -2076,7 +2533,7 @@ function renderRecommendations() {
     var sevClass = 'rec-severity-' + rec.severity;
     var chipsHtml = rec.items.map(function(it) {
       var label = it.name.length > 24 ? it.name.slice(0, 23) + '\u2026' : it.name;
-      return '<span class="rec-chip" data-id="' + it.id + '" data-type="' + it.type + '">' +
+      return '<span class="rec-chip" data-id="' + escapeHtml(it.id) + '" data-type="' + escapeHtml(it.type) + '">' +
         escapeHtml(label) + '</span>';
     }).join('');
     return '<div class="rec-card ' + sevClass + '">' +
@@ -2095,9 +2552,6 @@ function renderRecommendations() {
       openDetailModal(chip.dataset.id, chip.dataset.type);
     });
   });
-
-  // Re-analyze button
-  document.getElementById('btn-reanalyze').addEventListener('click', function() {
-    renderRecommendations();
-  });
 }
+
+document.getElementById('btn-reanalyze').addEventListener('click', renderRecommendations);

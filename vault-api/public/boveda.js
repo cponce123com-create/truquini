@@ -633,6 +633,7 @@ function clearSensitiveDom(){
   // Los modales se añaden a document.body, fuera de #app-screen: hay que
   // eliminarlos explícitamente para que no quede una contraseña visible.
   document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
+  document.body.classList.remove('modal-open');
   ['card-grid','stats-row','todo-list','category-list','rec-list','graph-legend'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.replaceChildren();
@@ -1508,128 +1509,510 @@ function deleteCategory(catId){
 // ============================================================
 document.getElementById('btn-add-account').addEventListener('click', ()=>openAddModal());
 
+function normalizeUrl(value){
+  const v = String(value || '').trim();
+  if(!v) return '';
+  if(/^https?:\/\//i.test(v)) return v;
+  if(v.startsWith('//')) return `https:${v}`;
+  const withoutScheme = v.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+  return `https://${withoutScheme}`;
+}
+
+function isLikelyEmail(value){
+  return /^[^\s@]+@[^\s@]+$/.test(String(value || '').trim());
+}
+
 function openAddModal(){
   const overlay = document.createElement('div');
   overlay.className='modal-overlay';
+  overlay.setAttribute('role','dialog');
+  overlay.setAttribute('aria-modal','true');
+  overlay.setAttribute('aria-labelledby','m-title');
   overlay.innerHTML = `
-    <div class="modal">
-      <h2>Agregar correo o cuenta</h2>
-      <div class="field">
-        <label>Tipo</label>
-        <select id="m-type">
-          <option value="account">Cuenta / servicio (Render, Neon, Telegram...)</option>
-          <option value="email">Correo (hub que agrupa varias cuentas)</option>
-        </select>
-      </div>
-      <div class="field">
-        <label id="m-name-label">Nombre del servicio</label>
-        <input id="m-name" placeholder="Ej: Render, Neon, Telegram, BCP">
-      </div>
-      <div class="field-row">
-        <div class="field">
-          <label>Usuario / correo de acceso</label>
-          <input id="m-username" placeholder="usuario@dominio.com" autocomplete="off">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <div>
+          <h2 id="m-title">Nueva cuenta</h2>
+          <p class="modal-subtitle" id="m-subtitle">Guarda los datos y las relaciones en un solo paso.</p>
         </div>
-        <div class="field">
-          <label>Categoría</label>
-          <select id="m-category">
-            ${getCategories().map(c=>`<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('')}
-          </select>
+        <button type="button" class="modal-close" id="m-close" aria-label="Cerrar">✕</button>
+      </div>
+
+      <div class="segmented" role="tablist" aria-label="Tipo de registro">
+        <button type="button" class="seg-btn active" data-type="account" role="tab" aria-selected="true">🔐 Cuenta / servicio</button>
+        <button type="button" class="seg-btn" data-type="email" role="tab" aria-selected="false">✉️ Correo / hub</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="form-col">
+          <div class="field">
+            <label for="m-name" id="m-name-label">Nombre del servicio</label>
+            <input id="m-name" placeholder="Ej: Render, Neon, Telegram, BCP" autocomplete="off">
+            <div class="field-error" id="m-name-error"></div>
+          </div>
+
+          <div class="field-row">
+            <div class="field" id="m-username-field">
+              <label for="m-username">Usuario / correo de acceso</label>
+              <input id="m-username" placeholder="usuario@dominio.com" autocomplete="off">
+            </div>
+            <div class="field" id="m-category-field">
+              <label for="m-category">Categoría</label>
+              <select id="m-category">
+                ${getCategories().map(c=>`<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="m-password">Contraseña</label>
+            <div class="pw-row">
+              <input id="m-password" type="password" autocomplete="off">
+              <button type="button" class="pw-toggle" data-target="m-password">👁</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="m-url">URL de acceso <span class="hint">(opcional)</span></label>
+            <input id="m-url" placeholder="https://dashboard.render.com" autocomplete="off">
+          </div>
+
+          <div class="field">
+            <label for="m-notes">Notas <span class="hint">(opcional)</span></label>
+            <textarea id="m-notes" placeholder="2FA, recovery codes, etc."></textarea>
+          </div>
         </div>
+
+        <aside class="rel-col">
+          <div class="relation-panel">
+            <div class="panel-title">Relaciones <span class="panel-count" id="m-rel-count"></span></div>
+            <p class="panel-hint" id="m-rel-panel-hint">Elige el correo dueño y marca las cuentas o correos que quieras vincular. Todo se guarda junto.</p>
+
+            <div class="field" id="m-owner-field">
+              <label for="m-owner-search">Correo dueño <span class="hint">(opcional)</span></label>
+              <div class="owner-picker" id="m-owner-wrap">
+                <input id="m-owner-search" placeholder="Buscar correo..." autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="m-owner-list">
+                <button type="button" class="picker-clear" id="m-owner-clear" aria-label="Quitar correo dueño">✕</button>
+                <div class="picker-list" id="m-owner-list" role="listbox"></div>
+              </div>
+              <div class="field-hint" id="m-owner-hint"></div>
+            </div>
+
+            <div class="field">
+              <label for="m-rel-search">Vincular con otros registros</label>
+              <input id="m-rel-search" placeholder="Buscar cuenta o correo..." autocomplete="off">
+              <div class="chips" id="m-rel-chips"></div>
+              <div class="field" id="m-rel-label-field" style="display:none;margin-top:10px;margin-bottom:0;">
+                <label for="m-rel-label">Etiqueta de las relaciones <span class="hint">(opcional)</span></label>
+                <input id="m-rel-label" placeholder="Ej: mismo teléfono, recuperación...">
+              </div>
+              <div class="rel-picker" id="m-rel-list"></div>
+            </div>
+          </div>
+        </aside>
       </div>
-      <div class="field">
-        <label>Contraseña</label>
-        <div class="pw-row">
-          <input id="m-password" type="password" autocomplete="off">
-          <button type="button" class="pw-toggle" data-target="m-password">👁</button>
+
+      <div class="modal-footer">
+        <span class="kbd-hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> guardar · <kbd>Esc</kbd> cerrar</span>
+        <div class="modal-actions">
+          <button class="btn" id="m-cancel" type="button">Cancelar</button>
+          <button class="btn" id="m-save-another" type="button">Guardar y agregar otro</button>
+          <button class="btn btn-primary" id="m-save" type="button">Guardar</button>
         </div>
-      </div>
-      <div class="field">
-        <label>URL de acceso (opcional)</label>
-        <input id="m-url" placeholder="https://dashboard.render.com" autocomplete="off">
-      </div>
-      <div class="field" id="m-owner-field">
-        <label>Correo dueño (opcional)</label>
-        <select id="m-owner"><option value="">— Ninguno —</option></select>
-      </div>
-      <div class="field">
-        <label>Notas (opcional)</label>
-        <textarea id="m-notes" placeholder="2FA, recovery codes, etc."></textarea>
-      </div>
-      <div class="modal-actions">
-        <button class="btn" id="m-cancel">Cancelar</button>
-        <button class="btn btn-primary" id="m-save">Guardar</button>
       </div>
     </div>
   `;
   document.body.appendChild(overlay);
+  document.body.classList.add('modal-open');
 
-  const ownerSelect = overlay.querySelector('#m-owner');
-  VAULT.emails.forEach(e=> ownerSelect.innerHTML += `<option value="${escapeHtml(e.id)}">${escapeHtml(e.address)}</option>`);
+  let selectedType = 'account';
+  let selectedOwnerId = '';
+  const selectedRelations = new Set();
 
-  const typeSelect = overlay.querySelector('#m-type');
-  const nameLabel = overlay.querySelector('#m-name-label');
-  const ownerField = overlay.querySelector('#m-owner-field');
-  const categoryField = overlay.querySelector('#m-category').closest('.field');
+  const $ = (sel) => overlay.querySelector(sel);
+  const modalBody = $('.modal-body');
+  const title = $('#m-title');
+  const subtitle = $('#m-subtitle');
+  const nameInput = $('#m-name');
+  const nameLabel = $('#m-name-label');
+  const nameError = $('#m-name-error');
+  const usernameInput = $('#m-username');
+  const categorySelect = $('#m-category');
+  const passwordInput = $('#m-password');
+  const urlInput = $('#m-url');
+  const notesInput = $('#m-notes');
+  const usernameField = $('#m-username-field');
+  const categoryField = $('#m-category-field');
+  const ownerField = $('#m-owner-field');
+  const ownerWrap = $('#m-owner-wrap');
+  const ownerSearch = $('#m-owner-search');
+  const ownerClear = $('#m-owner-clear');
+  const ownerList = $('#m-owner-list');
+  const ownerHint = $('#m-owner-hint');
+  const relPanelHint = $('#m-rel-panel-hint');
+  const relSearch = $('#m-rel-search');
+  const relList = $('#m-rel-list');
+  const relChips = $('#m-rel-chips');
+  const relLabelField = $('#m-rel-label-field');
+  const relLabel = $('#m-rel-label');
+  const relCount = $('#m-rel-count');
+  const typeButtons = Array.from(overlay.querySelectorAll('[data-type]'));
 
-  function syncType(){
-    if(typeSelect.value==='email'){
-      nameLabel.textContent = 'Dirección de correo';
-      overlay.querySelector('#m-name').placeholder = 'nombre@gmail.com';
-      ownerField.style.display='none';
-      categoryField.style.display='none';
-    }else{
-      nameLabel.textContent = 'Nombre del servicio';
-      overlay.querySelector('#m-name').placeholder = 'Ej: Render, Neon, Telegram, BCP';
-      ownerField.style.display='block';
-      categoryField.style.display='block';
+  function close(){
+    overlay.remove();
+    document.body.classList.remove('modal-open');
+  }
+
+  function clearErrors(){
+    nameError.textContent = '';
+    nameError.classList.remove('show');
+    nameInput.classList.remove('invalid');
+  }
+
+  function setNameError(msg){
+    nameError.textContent = msg;
+    nameError.classList.toggle('show', !!msg);
+    nameInput.classList.toggle('invalid', !!msg);
+    if(msg) nameInput.focus();
+  }
+
+  function updateOwnerHint(){
+    if(selectedType !== 'account'){ ownerHint.textContent = ''; return; }
+    if(selectedOwnerId){
+      const email = VAULT.emails.find(e=>e.id===selectedOwnerId);
+      ownerHint.textContent = email ? `La cuenta quedará bajo ${email.address}.` : '';
+      return;
+    }
+    ownerHint.textContent = VAULT.emails.length
+      ? 'Opcional. Elige el correo que agrupa esta cuenta.'
+      : 'Aún no hay correos. Crea uno con el tipo “Correo” para asignar dueño.';
+  }
+
+  function renderOwnerList(filter=''){
+    const q = filter.trim().toLowerCase();
+    const emails = [...VAULT.emails].sort((a,b)=>a.address.localeCompare(b.address));
+    const visible = emails.filter(e=>!q || e.address.toLowerCase().includes(q));
+    let html = `<button type="button" class="picker-option ${selectedOwnerId ? '' : 'selected'}" data-owner-id="">
+      <span class="picker-icon">—</span>
+      <span class="picker-option-main">Sin dueño</span>
+      ${selectedOwnerId ? '' : '<span class="picker-check">✓</span>'}
+    </button>`;
+    if(visible.length === 0){
+      html += `<div class="picker-empty">${emails.length ? 'Sin coincidencias.' : 'Aún no hay correos. Crea uno con el tipo “Correo”.'}</div>`;
+    } else {
+      html += visible.map(e=>{
+        const active = e.id === selectedOwnerId;
+        return `<button type="button" class="picker-option ${active ? 'selected' : ''}" data-owner-id="${escapeHtml(e.id)}">
+          <span class="picker-icon">✉</span>
+          <span class="picker-option-main">${escapeHtml(e.address)}</span>
+          ${active ? '<span class="picker-check">✓</span>' : ''}
+        </button>`;
+      }).join('');
+    }
+    ownerList.innerHTML = html;
+  }
+
+  function openOwnerList(){
+    if(selectedType !== 'account') return;
+    const selected = VAULT.emails.find(e=>e.id===selectedOwnerId);
+    const filter = selected && ownerSearch.value === selected.address ? '' : ownerSearch.value;
+    renderOwnerList(filter);
+    ownerList.classList.add('open');
+    ownerSearch.setAttribute('aria-expanded','true');
+  }
+
+  function closeOwnerList(){
+    ownerList.classList.remove('open');
+    ownerSearch.setAttribute('aria-expanded','false');
+  }
+
+  function selectOwner(id, opts={}){
+    const email = VAULT.emails.find(e=>e.id===id);
+    selectedOwnerId = email ? email.id : '';
+    ownerSearch.value = email ? email.address : '';
+    ownerClear.style.display = selectedOwnerId ? 'block' : 'none';
+    if(selectedOwnerId) selectedRelations.delete(selectedOwnerId);
+    updateOwnerHint();
+    renderOwnerList('');
+    renderRelations();
+    if(opts.close !== false) closeOwnerList();
+  }
+
+  function clearOwner(){
+    selectOwner('', {close:false});
+    ownerSearch.value = '';
+    ownerClear.style.display = 'none';
+  }
+
+  function relationNodes(){
+    return getAllNodes()
+      .filter(n=>!(selectedType === 'account' && selectedOwnerId && n.id === selectedOwnerId))
+      .sort((a,b)=>{
+        if(a.type !== b.type) return a.type === 'email' ? -1 : 1;
+        return (a.name || '').localeCompare(b.name || '');
+      });
+  }
+
+  function renderRelationList(filter=''){
+    const q = filter.trim().toLowerCase();
+    const nodes = relationNodes().filter(n=>{
+      if(!q) return true;
+      return `${n.name || ''} ${n.username || ''}`.toLowerCase().includes(q);
+    });
+    if(nodes.length === 0){
+      relList.innerHTML = `<div class="picker-empty">${getAllNodes().length ? 'Sin coincidencias.' : 'Aún no hay otros registros para vincular.'}</div>`;
+      return;
+    }
+    relList.innerHTML = nodes.map(n=>{
+      const checked = selectedRelations.has(n.id);
+      const isEmail = n.type === 'email';
+      const secondary = !isEmail && n.username ? n.username : '';
+      return `<label class="rel-option">
+        <input type="checkbox" data-rel-id="${escapeHtml(n.id)}" ${checked ? 'checked' : ''}>
+        <span class="rel-icon">${isEmail ? '✉' : '🔐'}</span>
+        <span class="rel-option-text">
+          <span class="rel-option-name">${escapeHtml(n.name)}</span>
+          ${secondary ? `<span class="rel-option-sub">${escapeHtml(secondary)}</span>` : ''}
+        </span>
+        <span class="rel-option-type">${isEmail ? 'Correo' : 'Cuenta'}</span>
+      </label>`;
+    }).join('');
+  }
+
+  function renderRelationChips(){
+    const ids = Array.from(selectedRelations);
+    relCount.textContent = ids.length ? `(${ids.length})` : '';
+    relLabelField.style.display = ids.length ? 'block' : 'none';
+    if(ids.length === 0){
+      relChips.innerHTML = '<span class="field-hint">Sin relaciones adicionales.</span>';
+      return;
+    }
+    relChips.innerHTML = ids.map(id=>{
+      const node = findNodeById(id);
+      if(!node) return '';
+      const label = node.type === 'email' ? node.address : node.name;
+      return `<span class="chip">
+        <span>${node.type === 'email' ? '✉' : '🔐'} ${escapeHtml(label)}</span>
+        <button type="button" data-chip-id="${escapeHtml(id)}" aria-label="Quitar ${escapeHtml(label)}">✕</button>
+      </span>`;
+    }).join('');
+  }
+
+  function renderRelations(){
+    renderRelationList(relSearch.value);
+    renderRelationChips();
+  }
+
+  function setType(type){
+    selectedType = type;
+    const isEmail = type === 'email';
+    typeButtons.forEach(btn=>{
+      const active = btn.dataset.type === type;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    title.textContent = isEmail ? 'Nuevo correo' : 'Nueva cuenta';
+    subtitle.textContent = isEmail
+      ? 'Crea un correo hub y relaciónalo con cuentas u otros correos.'
+      : 'Guarda los datos y las relaciones en un solo paso.';
+    relPanelHint.textContent = isEmail
+      ? 'Vincula este correo con cuentas u otros correos. Todo se guarda junto.'
+      : 'Elige el correo dueño y marca las cuentas o correos que quieras vincular. Todo se guarda junto.';
+    nameLabel.textContent = isEmail ? 'Dirección de correo' : 'Nombre del servicio';
+    nameInput.placeholder = isEmail ? 'nombre@dominio.com' : 'Ej: Render, Neon, Telegram, BCP';
+    usernameField.style.display = isEmail ? 'none' : '';
+    categoryField.style.display = isEmail ? 'none' : '';
+    ownerField.style.display = isEmail ? 'none' : '';
+    if(isEmail) closeOwnerList();
+    else updateOwnerHint();
+    if(type === 'account' && selectedOwnerId) selectedRelations.delete(selectedOwnerId);
+    renderRelations();
+    clearErrors();
+    nameInput.focus();
+  }
+
+  function collectData(){
+    return {
+      type: selectedType,
+      name: nameInput.value.trim(),
+      username: usernameInput.value.trim(),
+      password: passwordInput.value,
+      url: normalizeUrl(urlInput.value),
+      category: categorySelect.value,
+      notes: notesInput.value.trim(),
+      ownerId: selectedType === 'account' ? selectedOwnerId : '',
+      relationIds: Array.from(selectedRelations),
+      relationLabel: relLabel.value.trim(),
+    };
+  }
+
+  function validate(data){
+    clearErrors();
+    if(!data.name){
+      setNameError(data.type === 'email' ? 'Ingresa la dirección de correo.' : 'El nombre no puede estar vacío.');
+      return false;
+    }
+    if(data.type === 'email' && !isLikelyEmail(data.name)){
+      setNameError('Ingresa un correo válido (ej: nombre@dominio.com).');
+      return false;
+    }
+    return true;
+  }
+
+  function resetForNext(){
+    nameInput.value = '';
+    usernameInput.value = '';
+    passwordInput.value = '';
+    urlInput.value = '';
+    notesInput.value = '';
+    relSearch.value = '';
+    relLabel.value = '';
+    selectedRelations.clear();
+    passwordInput.type = 'password';
+    if(selectedOwnerId && !VAULT.emails.some(e=>e.id===selectedOwnerId)) selectOwner('', {close:false});
+    renderOwnerList('');
+    renderRelations();
+    updateOwnerHint();
+    clearErrors();
+    modalBody.scrollTop = 0;
+    nameInput.focus();
+  }
+
+  function commit(data, keepOpen){
+    const newId = uid();
+    if(data.type === 'email'){
+      VAULT.emails.push({ id:newId, address:data.name, password:data.password, url:data.url, notes:data.notes });
+    } else {
+      VAULT.accounts.push({
+        id:newId, name:data.name, username:data.username, password:data.password,
+        url:data.url, category:data.category, notes:data.notes
+      });
+      if(data.ownerId && findNodeById(data.ownerId)){
+        VAULT.links.push({ id:uid(), from:data.ownerId, to:newId, type:'owner', label:'' });
+      }
+    }
+    data.relationIds.forEach(targetId=>{
+      if(!targetId || targetId === data.ownerId) return;
+      if(!findNodeById(targetId)) return;
+      VAULT.links.push({
+        id:uid(), from:newId, to:targetId, type:'cross',
+        label:data.relationLabel || 'vinculado'
+      });
+    });
+    renderAll();
+    autosave();
+    if(keepOpen){
+      resetForNext();
+      showCopyFeedback(data.type === 'email' ? 'Correo guardado. Puedes agregar otro.' : 'Cuenta guardada. Puedes agregar otra.');
+    } else {
+      close();
+      showCopyFeedback(data.type === 'email' ? 'Correo guardado' : 'Cuenta guardada');
     }
   }
-  typeSelect.addEventListener('change', syncType);
+
+  function save(keepOpen){
+    const data = collectData();
+    if(!validate(data)) return;
+    const duplicates = findDuplicates(data.type, data.name, data.username);
+    if(duplicates.length > 0){
+      showDuplicateWarning(duplicates, ()=>commit(data, keepOpen));
+      return;
+    }
+    commit(data, keepOpen);
+  }
+
+  typeButtons.forEach(btn=>btn.addEventListener('click', ()=>setType(btn.dataset.type)));
+  nameInput.addEventListener('input', ()=>{ if(nameError.classList.contains('show')) clearErrors(); });
 
   overlay.querySelectorAll('.pw-toggle').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const inp = overlay.querySelector('#'+btn.dataset.target);
-      inp.type = inp.type==='password' ? 'text' : 'password';
+      inp.type = inp.type === 'password' ? 'text' : 'password';
     });
   });
 
-  overlay.querySelector('#m-cancel').addEventListener('click', ()=>overlay.remove());
-  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.remove(); });
-
-  overlay.querySelector('#m-save').addEventListener('click', ()=>{
-    const name = overlay.querySelector('#m-name').value.trim();
-    if(!name){ alert('El nombre no puede estar vacío.'); return; }
-    const username = overlay.querySelector('#m-username').value.trim();
-    const password = overlay.querySelector('#m-password').value;
-    const url = overlay.querySelector('#m-url').value.trim();
-    const notes = overlay.querySelector('#m-notes').value.trim();
-
-    // Filtro inteligente de duplicados
-    const duplicates = findDuplicates(typeSelect.value, name, username);
-    if (duplicates.length > 0) {
-      showDuplicateWarning(duplicates, function() { actuallySave(); });
-      return;
-    }
-    actuallySave();
-
-    function actuallySave() {
-      if(typeSelect.value==='email'){
-        VAULT.emails.push({ id:uid(), address:name, password, url, notes });
-      } else {
-        const category = overlay.querySelector('#m-category').value;
-        const ownerId = ownerSelect.value;
-        const newAcc = { id:uid(), name, username, password, url, category, notes };
-        VAULT.accounts.push(newAcc);
-        if(ownerId){
-          VAULT.links.push({ id:uid(), from:ownerId, to:newAcc.id, type:'owner', label:'' });
-        }
+  ownerSearch.addEventListener('focus', openOwnerList);
+  ownerSearch.addEventListener('click', openOwnerList);
+  ownerSearch.addEventListener('input', ()=>{
+    if(selectedOwnerId){
+      const selected = VAULT.emails.find(e=>e.id===selectedOwnerId);
+      if(!selected || selected.address !== ownerSearch.value){
+        selectedOwnerId = '';
+        ownerClear.style.display = 'none';
+        updateOwnerHint();
+        renderRelations();
       }
-      overlay.remove();
-      renderAll();
-      autosave();
+    }
+    openOwnerList();
+  });
+  ownerSearch.addEventListener('keydown', (e)=>{
+    if(e.key === 'Escape'){ closeOwnerList(); e.stopPropagation(); return; }
+    if(e.key === 'Enter' && ownerSearch.value.trim()){
+      const selected = VAULT.emails.find(x=>x.id===selectedOwnerId);
+      if(selected && ownerSearch.value === selected.address){ closeOwnerList(); return; }
+      const first = ownerList.querySelector('.picker-option[data-owner-id]:not([data-owner-id=""])');
+      if(first){ e.preventDefault(); first.click(); }
     }
   });
+  ownerSearch.addEventListener('blur', ()=>{
+    setTimeout(()=>{
+      if(ownerWrap.contains(document.activeElement)) return;
+      closeOwnerList();
+      if(!selectedOwnerId) ownerSearch.value = '';
+    }, 120);
+  });
+  ownerClear.addEventListener('click', (e)=>{
+    e.preventDefault();
+    clearOwner();
+    ownerSearch.focus();
+    openOwnerList();
+  });
+  ownerList.addEventListener('click', (e)=>{
+    const option = e.target.closest('[data-owner-id]');
+    if(!option) return;
+    selectOwner(option.dataset.ownerId || '');
+    ownerSearch.blur();
+  });
+
+  relSearch.addEventListener('input', ()=>renderRelationList(relSearch.value));
+  relList.addEventListener('change', (e)=>{
+    const checkbox = e.target.closest('input[data-rel-id]');
+    if(!checkbox) return;
+    if(checkbox.checked) selectedRelations.add(checkbox.dataset.relId);
+    else selectedRelations.delete(checkbox.dataset.relId);
+    renderRelationChips();
+  });
+  relChips.addEventListener('click', (e)=>{
+    const btn = e.target.closest('[data-chip-id]');
+    if(!btn) return;
+    selectedRelations.delete(btn.dataset.chipId);
+    renderRelations();
+  });
+
+  $('#m-save').addEventListener('click', ()=>save(false));
+  $('#m-save-another').addEventListener('click', ()=>save(true));
+  $('#m-cancel').addEventListener('click', close);
+  $('#m-close').addEventListener('click', close);
+  overlay.addEventListener('click', (e)=>{
+    if(!ownerWrap.contains(e.target)) closeOwnerList();
+    if(e.target === overlay) close();
+  });
+  overlay.addEventListener('keydown', (e)=>{
+    if((e.ctrlKey || e.metaKey) && e.key === 'Enter'){
+      e.preventDefault();
+      save(false);
+      return;
+    }
+    if(e.key === 'Escape'){
+      const overlays = document.querySelectorAll('.modal-overlay');
+      if(overlays[overlays.length - 1] !== overlay) return;
+      if(ownerList.classList.contains('open')){ closeOwnerList(); return; }
+      close();
+    }
+  });
+
+  renderOwnerList('');
+  setType('account');
 }
 
 // ============================================================
